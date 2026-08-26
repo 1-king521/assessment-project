@@ -1,0 +1,13 @@
+backend/.gradle/
+backend/.gradle-native/
+backend/build/
+backend/out/
+backend/.idea/
+backend/.kotlin/
+backend/.test-tools/
+backend/data/
+backend/src/main/resources/application-local.yml
+frontend/node_modules/
+frontend/dist/
+*.iml
+backend/.git-backup/

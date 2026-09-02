@@ -1,5 +1,10 @@
 package com.acme.assessment.web
 
+import com.acme.assessment.controller.*
+import com.acme.assessment.service.*
+import com.acme.assessment.dto.*
+import com.acme.assessment.entity.*
+
 import jakarta.servlet.http.HttpServletRequest
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity

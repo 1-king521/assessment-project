@@ -1,6 +1,11 @@
 package com.acme.assessment.config
 
-import com.acme.assessment.domain.User
+import com.acme.assessment.controller.*
+import com.acme.assessment.service.*
+import com.acme.assessment.dto.*
+import com.acme.assessment.entity.*
+
+import com.acme.assessment.entity.User
 import com.acme.assessment.repository.RoleRepository
 import com.acme.assessment.repository.UserRepository
 import org.slf4j.LoggerFactory

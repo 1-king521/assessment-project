@@ -5,6 +5,13 @@ const token = ref(localStorage.getItem('assessment_token') || '')
 const user = ref(JSON.parse(localStorage.getItem('assessment_user') || 'null'))
 const loginForm = ref({ username: 'admin', password: 'ChangeMe123!' })
 const loginError = ref('')
+const showRegister = ref(false)
+const registerError = ref('')
+const registerMessage = ref('')
+const loginMessage = ref('')
+const registerLoading = ref(false)
+const registerForm = ref({ username: '', password: '', realName: '', phone: '', requestedRole: 'HR' })
+const pendingUsers = ref([])
 const loading = ref(false)
 const message = ref('')
 const tasks = ref([])
@@ -58,6 +65,7 @@ const loggedIn = computed(() => Boolean(token.value))
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
 const recordTotalPages = computed(() => Math.max(1, Math.ceil(recordTotal.value / recordPageSize.value)))
 const canPublish = computed(() => ['ADMIN', 'HR_MANAGER'].includes(user.value?.role))
+const canManageUsers = computed(() => user.value?.role === 'ADMIN')
 const availableTemplatePositions = computed(() => templatePositions.value.filter(
   position => !templateList.value.some(template => template.positionId === position.id)
 ))
@@ -92,6 +100,7 @@ async function request(path, options = {}) {
 
 async function login() {
   loginError.value = ''
+  loginMessage.value = ''
   loading.value = true
   try {
     const result = await request('/api/auth/login', { method: 'POST', body: JSON.stringify(loginForm.value) })
@@ -105,6 +114,46 @@ async function login() {
   } finally {
     loading.value = false
   }
+}
+
+async function register() {
+  registerError.value = ''
+  registerMessage.value = ''
+  registerLoading.value = true
+  try {
+    const result = await request('/api/auth/register', { method: 'POST', body: JSON.stringify(registerForm.value) })
+    registerMessage.value = result.dingtalkMatchStatus === 'MATCHED'
+      ? '注册申请已提交，钉钉账号已匹配，请等待管理员审核。'
+      : '注册申请已提交，请等待管理员审核；钉钉账号将在匹配成功后用于接收通知。'
+    registerForm.value = { username: '', password: '', realName: '', phone: '', requestedRole: 'HR' }
+    loginMessage.value = registerMessage.value
+    showRegister.value = false
+  } catch (error) {
+    registerError.value = error.message
+  } finally {
+    registerLoading.value = false
+  }
+}
+
+async function loadPendingUsers() {
+  view.value = 'users'
+  try { pendingUsers.value = await request('/api/users/pending') } catch (error) { message.value = error.message }
+}
+
+async function approvePendingUser(item) {
+  try {
+    await request(`/api/users/${item.id}/approve`, { method: 'POST' })
+    message.value = `${item.realName} 已通过审核`
+    await loadPendingUsers()
+  } catch (error) { message.value = error.message }
+}
+
+async function rematchDingtalk(item) {
+  try {
+    const result = await request(`/api/users/${item.id}/dingtalk-match`, { method: 'POST' })
+    message.value = result.dingtalkMatchStatus === 'MATCHED' ? '钉钉账号匹配成功' : '暂未匹配到钉钉账号'
+    await loadPendingUsers()
+  } catch (error) { message.value = error.message }
 }
 
 function logout() {
@@ -633,15 +682,34 @@ onUnmounted(() => { clearRecordFileUrls(); clearDetailFileUrls() })
         <label>账号<input v-model="loginForm.username" autocomplete="username" /></label>
         <label>密码<input v-model="loginForm.password" type="password" autocomplete="current-password" /></label>
         <p v-if="loginError" class="error-text">{{ loginError }}</p>
+        <p v-if="loginMessage" class="success-text">{{ loginMessage }}</p>
         <button class="primary-button" :disabled="loading">{{ loading ? '登录中...' : '登录工作台' }}</button>
       </form>
+      <button type="button" class="outline-button login-register-button" @click="showRegister = true">申请内部账号</button>
     </section>
   </main>
+
+  <div v-if="showRegister" class="modal-backdrop" @click.self="showRegister = false">
+    <section class="link-modal register-modal">
+      <header><div><p class="eyebrow">INTERNAL ACCOUNT</p><h2>申请内部账号</h2></div><button class="close-button" @click="showRegister = false">×</button></header>
+      <p class="muted">注册后需要管理员审核。手机号用于匹配钉钉账号，暂不进行短信验证。</p>
+      <form class="login-form" @submit.prevent="register">
+        <label>姓名<input v-model="registerForm.realName" required maxlength="80" /></label>
+        <label>账号<input v-model="registerForm.username" required maxlength="80" autocomplete="username" /></label>
+        <label>密码<input v-model="registerForm.password" required minlength="8" type="password" autocomplete="new-password" /></label>
+        <label>手机号<input v-model="registerForm.phone" required maxlength="30" inputmode="tel" /></label>
+        <label>申请角色<select v-model="registerForm.requestedRole"><option value="HR">HR</option><option value="REVIEWER">评估人员</option></select></label>
+        <p v-if="registerError" class="error-text">{{ registerError }}</p>
+        <p v-if="registerMessage" class="success-text">{{ registerMessage }}</p>
+        <button class="primary-button" :disabled="registerLoading">{{ registerLoading ? '提交中...' : '提交注册申请' }}</button>
+      </form>
+    </section>
+  </div>
 
   <main v-else class="app-shell">
     <aside class="sidebar">
       <div class="brand"><span class="brand-mark small">RA</span><span>测评工作台</span></div>
-      <nav><a class="nav-item" :class="{active: view === 'tasks'}" @click="view = 'tasks'">任务管理 <span>⌘</span></a><a class="nav-item" :class="{active: view === 'records'}" @click="loadRecords">测评记录</a><a class="nav-item" :class="{active: view === 'templates'}" @click="loadTemplates">模板管理</a><a class="nav-item">系统设置</a></nav>
+      <nav><a class="nav-item" :class="{active: view === 'tasks'}" @click="view = 'tasks'">任务管理 <span>⌘</span></a><a class="nav-item" :class="{active: view === 'records'}" @click="loadRecords">测评记录</a><a class="nav-item" :class="{active: view === 'templates'}" @click="loadTemplates">模板管理</a><a v-if="canManageUsers" class="nav-item" :class="{active: view === 'users'}" @click="loadPendingUsers">账号审核 <span v-if="pendingUsers.length">{{ pendingUsers.length }}</span></a></nav>
       <div class="sidebar-foot"><span class="avatar">{{ user?.realName?.slice(0, 1) || '管' }}</span><div><strong>{{ user?.realName }}</strong><small>{{ user?.role }}</small></div><button class="icon-button" title="退出登录" @click="logout">↪</button></div>
     </aside>
     <section class="content">
@@ -674,6 +742,10 @@ onUnmounted(() => { clearRecordFileUrls(); clearDetailFileUrls() })
       <template v-else-if="view === 'templates'">
         <header class="topbar"><div><p class="eyebrow">CONFIGURATION / TEMPLATES</p><h1>模板管理</h1></div><div class="top-actions"><button class="outline-button" @click="loadTemplates">↻ 刷新数据</button><button class="primary-button compact" @click="openTemplateCreate">＋ 新建模板</button></div></header>
         <section class="table-section"><div class="section-heading"><div><h2>测评模板</h2><span>{{ templateList.length }} 个模板</span></div><span v-if="templateLoading" class="loading">正在加载...</span></div><div class="table-scroll"><table><thead><tr><th>模板名称</th><th>适用岗位</th><th>状态</th><th>模板负责人</th><th>操作</th></tr></thead><tbody><tr v-for="template in templateList" :key="template.id"><td><strong>{{ template.templateName }}</strong></td><td>{{ positionName(template.positionId) }}</td><td><span class="status-pill" :class="template.status === 'ACTIVE' ? 'status-reviewed' : ''">{{ template.status === 'ACTIVE' ? '启用' : '草稿' }}</span></td><td>#{{ template.ownerUserId }}</td><td><div class="version-actions"><button class="outline-button" @click="replaceTemplate(template)">替换模板</button><button class="detail-button" @click="openTemplateVersions(template)">版本历史 →</button></div></td></tr><tr v-if="!templateList.length"><td colspan="5" class="empty">暂无模板，请先新建模板</td></tr></tbody></table></div></section>
+      </template>
+      <template v-else-if="view === 'users'">
+        <header class="topbar"><div><p class="eyebrow">ACCESS / REGISTRATION</p><h1>账号审核</h1></div><div class="top-actions"><button class="outline-button" @click="loadPendingUsers">↻ 刷新数据</button></div></header>
+        <section class="table-section"><div class="section-heading"><div><h2>待审核注册申请</h2><span>{{ pendingUsers.length }} 条记录</span></div></div><div class="table-scroll"><table><thead><tr><th>申请人</th><th>账号</th><th>手机号</th><th>申请角色</th><th>钉钉匹配</th><th>申请时间</th><th>操作</th></tr></thead><tbody><tr v-for="item in pendingUsers" :key="item.id"><td><strong>{{ item.realName }}</strong></td><td>{{ item.username }}</td><td>{{ item.phone || '--' }}</td><td>{{ item.requestedRole === 'REVIEWER' ? '评估人员' : 'HR' }}</td><td><span class="status-pill" :class="item.dingtalkMatchStatus === 'MATCHED' ? 'status-reviewed' : ''">{{ item.dingtalkName || item.dingtalkMatchStatus }}</span></td><td>{{ formatDate(item.createdAt) }}</td><td><div class="version-actions"><button class="detail-button" @click="rematchDingtalk(item)">重新匹配</button><button class="primary-button compact" @click="approvePendingUser(item)">通过审核</button></div></td></tr><tr v-if="!pendingUsers.length"><td colspan="7" class="empty">暂无待审核账号</td></tr></tbody></table></div></section>
       </template>
     </section>
   </main>

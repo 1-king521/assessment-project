@@ -1,20 +1,25 @@
 package com.acme.assessment.task
 
-import com.acme.assessment.auth.AuthenticationService
-import com.acme.assessment.auth.CurrentUser
+import com.acme.assessment.service.AuthenticationService
+import com.acme.assessment.dto.CurrentUser
+import com.acme.assessment.service.AssessmentTaskService
+import com.acme.assessment.service.SecureTokenService
+import com.acme.assessment.service.TaskNumberGenerator
+import com.acme.assessment.dto.CreateAssessmentTaskRequest
 import com.acme.assessment.config.AppProperties
 import com.acme.assessment.config.BootstrapProperties
 import com.acme.assessment.config.JwtProperties
-import com.acme.assessment.domain.AssessmentTask
-import com.acme.assessment.domain.AssessmentAssignment
-import com.acme.assessment.domain.AssessmentTemplate
-import com.acme.assessment.domain.AssessmentTemplateVersion
-import com.acme.assessment.domain.JobPosition
-import com.acme.assessment.domain.RecordStatus
-import com.acme.assessment.domain.Role
-import com.acme.assessment.domain.TemplateVersionStatus
-import com.acme.assessment.domain.User
-import com.acme.assessment.domain.UserStatus
+import com.acme.assessment.entity.AssessmentTask
+import com.acme.assessment.entity.AssessmentAssignment
+import com.acme.assessment.entity.AssessmentTemplate
+import com.acme.assessment.entity.AssessmentTemplateVersion
+import com.acme.assessment.entity.JobPosition
+import com.acme.assessment.entity.RecordStatus
+import com.acme.assessment.entity.Role
+import com.acme.assessment.entity.TemplateVersionStatus
+import com.acme.assessment.entity.TaskStatus
+import com.acme.assessment.entity.User
+import com.acme.assessment.entity.UserStatus
 import com.acme.assessment.repository.AssessmentAssignmentRepository
 import com.acme.assessment.repository.AssessmentTaskRepository
 import com.acme.assessment.repository.AssessmentTemplateRepository
@@ -23,8 +28,10 @@ import com.acme.assessment.repository.JobPositionRepository
 import com.acme.assessment.repository.OperationLogRepository
 import com.acme.assessment.repository.RoleRepository
 import com.acme.assessment.repository.UserRepository
+import com.acme.assessment.web.BusinessException
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.any
@@ -60,12 +67,9 @@ class AssessmentTaskServiceTest {
         service = AssessmentTaskService(
             authenticationService,
             taskRepository,
-            assignmentRepository,
             positionRepository,
             templateRepository,
             versionRepository,
-            userRepository,
-            roleRepository,
             operationLogRepository,
             tokenService,
             numberGenerator,
@@ -80,7 +84,7 @@ class AssessmentTaskServiceTest {
     }
 
     @Test
-    fun `creates draft task assignments and audit log atomically`() {
+    fun `creates draft task without reviewer assignments`() {
         whenever(authenticationService.currentUser()).thenReturn(CurrentUser(10, "hr", "招聘专员", "HR", 1))
         whenever(positionRepository.findById(100)).thenReturn(
             Optional.of(JobPosition(id = 100, departmentId = 1, positionCode = "DEV", positionName = "开发", status = RecordStatus.ACTIVE)),
@@ -91,10 +95,6 @@ class AssessmentTaskServiceTest {
         whenever(templateRepository.findById(200)).thenReturn(
             Optional.of(AssessmentTemplate(id = 200, positionId = 100)),
         )
-        whenever(userRepository.findAllByIdIn(setOf(20L))).thenReturn(
-            listOf(User(id = 20, username = "reviewer", realName = "评估员", roleId = 4, status = UserStatus.ACTIVE)),
-        )
-        whenever(roleRepository.findAllById(listOf(4L))).thenReturn(listOf(Role(id = 4, roleCode = "REVIEWER")))
         whenever(numberGenerator.next()).thenReturn("TEST202608250001")
         whenever(taskRepository.existsByTaskNo(any())).thenReturn(false)
         whenever(tokenService.generate()).thenReturn("raw-token")
@@ -110,7 +110,6 @@ class AssessmentTaskServiceTest {
                 candidatePhone = " 13800000000 ",
                 positionId = 100,
                 templateVersionId = 300,
-                reviewerUserIds = setOf(20),
                 deadline = now.plusSeconds(3600),
             ),
         )
@@ -121,7 +120,49 @@ class AssessmentTaskServiceTest {
         verify(taskRepository).save(task.capture())
         assertThat(task.firstValue.candidateName).isEqualTo("张三")
         assertThat(task.firstValue.tokenHash).isEqualTo("hashed-token")
-        verify(assignmentRepository).saveAll(any<Iterable<AssessmentAssignment>>())
+        verify(operationLogRepository).save(any())
+    }
+
+    @Test
+    fun `rejects blank candidate phone before creating task`() {
+        whenever(authenticationService.currentUser()).thenReturn(CurrentUser(10, "hr", "招聘专员", "HR", 1))
+
+        assertThatThrownBy {
+            service.create(
+                CreateAssessmentTaskRequest(
+                    candidateName = "张三",
+                    candidatePhone = "   ",
+                    positionId = 100,
+                    templateVersionId = 300,
+                    deadline = now.plusSeconds(3600),
+                ),
+            )
+        }.isInstanceOf(BusinessException::class.java)
+            .hasMessage("手机号格式不正确")
+    }
+
+    @Test
+    fun `regenerates assessment link and replaces token hash`() {
+        whenever(authenticationService.currentUser()).thenReturn(CurrentUser(10, "hr", "招聘专员", "HR", 1))
+        val task = AssessmentTask(
+            id = 500,
+            taskNo = "TEST202608250001",
+            hrUserId = 10,
+            status = TaskStatus.SENT,
+            tokenHash = "old-hash",
+            deadline = now.plusSeconds(3600),
+        )
+        whenever(taskRepository.findById(500)).thenReturn(Optional.of(task))
+        whenever(tokenService.generate()).thenReturn("new-raw-token")
+        whenever(tokenService.hash("new-raw-token")).thenReturn("new-hash")
+        whenever(taskRepository.existsByTokenHash("new-hash")).thenReturn(false)
+        whenever(taskRepository.save(task)).thenReturn(task)
+
+        val response = service.regenerateLink(500)
+
+        assertThat(response.assessmentUrl).isEqualTo("https://example.test/assessment/new-raw-token")
+        assertThat(task.tokenHash).isEqualTo("new-hash")
+        verify(taskRepository).save(task)
         verify(operationLogRepository).save(any())
     }
 }

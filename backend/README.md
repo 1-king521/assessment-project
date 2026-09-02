@@ -3,8 +3,7 @@
 第一阶段后端基线，包含：
 
 - Java 21、Kotlin、Spring Boot
-- PostgreSQL + Flyway（13 张核心表）
-- Redis 接入配置
+- PostgreSQL + Flyway 业务数据持久化
 - JWT 登录认证和角色权限
 - 初始化管理员
 - 创建测评任务、创建评估分配、生成安全链接
@@ -81,28 +80,11 @@ Content-Type: application/json
 - `POST /api/public/assessments/{token}/files/{fileId}/complete`：确认文件校验值
 - `DELETE /api/public/assessments/{token}/files/{fileId}`：删除未提交附件
 
-手机号验证：
+候选人接口仅校验测评链接 Token，无需额外身份验证或 Cookie。任何获得有效链接的浏览器都可以读取草稿、保存答案、操作附件并提交；任务过期、撤回、归档、提交或重新生成链接后，原链接不可继续使用。
 
-- `POST /api/public/assessments/{token}/phone/send-code`
-- `POST /api/public/assessments/{token}/phone/verify`
+评估人员在候选人提交后由 HR 分配。分配前可调整人员；评估人员明确开始评估后，分配被锁定。
 
-本地 `application-local.yml` 默认使用内存存储和调试验证码模式。发送验证码响应中的 `debugCode` 仅用于本地测试；验证成功后会返回 `Set-Cookie: candidate_session=...`。后续请求需要在 Apifox 中保留该 Cookie。
-
-本地测试顺序：
-
-```http
-POST /api/public/assessments/<token>/phone/send-code
-{"phone":"任务绑定的手机号"}
-```
-
-复制返回的 `debugCode`，再请求：
-
-```http
-POST /api/public/assessments/<token>/phone/verify
-{"phone":"任务绑定的手机号","code":"六位验证码"}
-```
-
-验证成功后，在 Apifox 的 Cookies 中保留 `candidate_session`，再调用草稿和提交接口。没有 Cookie 时，这两个接口会返回 `CANDIDATE_SESSION_REQUIRED`；已提交任务允许读取结果，但不允许继续保存或提交。
+管理端使用 `POST /api/assessment-tasks/{id}/reviewers` 分配评估人员；任务创建时不再提交评估人员列表。
 
 文件上传本地测试：
 
@@ -120,15 +102,6 @@ POST /api/public/assessments/<token>/phone/verify
 2. 使用返回的 `uploadUrl` 发起 `PUT`，Body 类型选择 `form-data`，字段名为 `file`，类型选择文件。
 3. 上传成功后可以直接使用返回的 SHA-256 校验值调用 `complete`；当前本地上传接口已在写盘时完成状态更新，`complete` 仍会再次校验文件内容。
 4. 文件保存在 `app.candidate.storage-path`，本地默认是 `backend/data/uploads`。
-
-部署环境建议设置：
-
-```yaml
-app:
-  candidate:
-    store-mode: REDIS
-    debug-code-response: false
-```
 
 保存草稿示例：
 
@@ -153,7 +126,7 @@ Content-Type: application/json
 {"idempotencyKey":"submit-20260825-001","confirm":"SUBMIT"}
 ```
 
-手机号验证、Redis 候选人会话和对象存储文件上传将在下一阶段接入；当前公开接口以随机 Token 作为访问凭证。
+候选人公开接口使用测评链接中的 Token 校验访问权限，不创建额外的候选人会话。
 
 ## 评估人员接口
 
@@ -184,6 +157,7 @@ HR、HR_MANAGER 和 ADMIN 可以访问任务管理接口。普通 HR 只能看�
 - `GET /api/assessment-tasks/statistics`：返回当前数据权限范围内各任务状态数量
 - `GET /api/assessment-tasks/{id}`：查看任务详情、答案、附件、评估分配、评估结果和操作日志
 - `POST /api/assessment-tasks/{id}/revoke`：撤回尚未提交的任务
+- `POST /api/assessment-tasks/{id}/regenerate-link`：重新生成候选人测试链接，旧链接立即失效
 - `POST /api/assessment-tasks/{id}/extend`：延期任务
 - `POST /api/assessment-tasks/{id}/archive`：归档已评估、已撤回或已过期任务
 

@@ -1,5 +1,10 @@
 package com.acme.assessment.config
 
+import com.acme.assessment.controller.*
+import com.acme.assessment.service.*
+import com.acme.assessment.dto.*
+import com.acme.assessment.entity.*
+
 import com.nimbusds.jose.jwk.source.ImmutableSecret
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
@@ -37,7 +42,7 @@ class SecurityConfig {
         .csrf { it.disable() }
         .sessionManagement { it.sessionCreationPolicy(SessionCreationPolicy.STATELESS) }
         .authorizeHttpRequests {
-            it.requestMatchers("/actuator/health", "/api/auth/login").permitAll()
+            it.requestMatchers("/actuator/health", "/api/auth/login", "/api/auth/register").permitAll()
                 .requestMatchers("/api/public/**").permitAll()
                 .anyRequest().authenticated()
         }

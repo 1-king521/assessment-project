@@ -1,5 +1,6 @@
 package com.acme.assessment.task
 
+import com.acme.assessment.service.SecureTokenService
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 
@@ -17,4 +18,3 @@ class SecureTokenServiceTest {
         assertThat(service.hash(second)).isNotEqualTo(service.hash(first))
     }
 }
-

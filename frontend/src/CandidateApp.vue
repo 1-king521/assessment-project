@@ -1,6 +1,19 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 
+// 兼容的 UUID 生成函数（支持旧浏览器）
+function generateUUID() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID()
+  }
+  // 降级方案：生成符合 UUID v4 格式的字符串
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0
+    const v = c === 'x' ? r : (r & 0x3 | 0x8)
+    return v.toString(16)
+  })
+}
+
 const token = window.location.pathname.split('/').filter(Boolean)[1] || ''
 const loading = ref(true)
 const error = ref('')
@@ -111,7 +124,7 @@ async function submitAssessment() {
       submitError.value = error.value || '草稿保存失败，请重试'
       return
     }
-    const result = await api(`/api/public/assessments/${token}/submit`, { method: 'POST', body: JSON.stringify({ idempotencyKey: crypto.randomUUID(), confirm: 'SUBMIT' }) })
+    const result = await api(`/api/public/assessments/${token}/submit`, { method: 'POST', body: JSON.stringify({ idempotencyKey: generateUUID(), confirm: 'SUBMIT' }) })
     assessment.value.status = result.status
     submitted.value = true
   } catch (exception) {

@@ -13,7 +13,7 @@ import com.acme.assessment.entity.AssessmentTask
 import com.acme.assessment.entity.AssessmentAssignment
 import com.acme.assessment.entity.AssessmentTemplate
 import com.acme.assessment.entity.AssessmentTemplateVersion
-import com.acme.assessment.entity.JobPosition
+import com.acme.assessment.entity.RecruitmentPosition
 import com.acme.assessment.entity.RecordStatus
 import com.acme.assessment.entity.Role
 import com.acme.assessment.entity.TemplateVersionStatus
@@ -24,7 +24,7 @@ import com.acme.assessment.repository.AssessmentAssignmentRepository
 import com.acme.assessment.repository.AssessmentTaskRepository
 import com.acme.assessment.repository.AssessmentTemplateRepository
 import com.acme.assessment.repository.AssessmentTemplateVersionRepository
-import com.acme.assessment.repository.JobPositionRepository
+import com.acme.assessment.repository.RecruitmentPositionRepository
 import com.acme.assessment.repository.OperationLogRepository
 import com.acme.assessment.repository.RoleRepository
 import com.acme.assessment.repository.UserRepository
@@ -49,7 +49,7 @@ class AssessmentTaskServiceTest {
     private val authenticationService = mock<AuthenticationService>()
     private val taskRepository = mock<AssessmentTaskRepository>()
     private val assignmentRepository = mock<AssessmentAssignmentRepository>()
-    private val positionRepository = mock<JobPositionRepository>()
+    private val positionRepository = mock<RecruitmentPositionRepository>()
     private val templateRepository = mock<AssessmentTemplateRepository>()
     private val versionRepository = mock<AssessmentTemplateVersionRepository>()
     private val userRepository = mock<UserRepository>()
@@ -87,7 +87,7 @@ class AssessmentTaskServiceTest {
     fun `creates draft task without reviewer assignments`() {
         whenever(authenticationService.currentUser()).thenReturn(CurrentUser(10, "hr", "招聘专员", "HR", 1))
         whenever(positionRepository.findById(100)).thenReturn(
-            Optional.of(JobPosition(id = 100, departmentId = 1, positionCode = "DEV", positionName = "开发", status = RecordStatus.ACTIVE)),
+            Optional.of(RecruitmentPosition(id = 100, departmentName = "技术部", positionName = "开发", status = RecordStatus.ACTIVE)),
         )
         whenever(versionRepository.findById(300)).thenReturn(
             Optional.of(AssessmentTemplateVersion(id = 300, templateId = 200, versionStatus = TemplateVersionStatus.PUBLISHED)),

@@ -94,6 +94,10 @@ class User(
     var departmentId: Long? = null,
     @Column(name = "position_id")
     var positionId: Long? = null,
+    @Column(name = "requested_department_name")
+    var requestedDepartmentName: String? = null,
+    @Column(name = "requested_position_name")
+    var requestedPositionName: String? = null,
     @Column(name = "role_id", nullable = false)
     var roleId: Long = 0,
     @Enumerated(EnumType.STRING)
@@ -124,6 +128,27 @@ class JobPosition(
     var description: String? = null,
     @Column(name = "default_template_id")
     var defaultTemplateId: Long? = null,
+    @Enumerated(EnumType.STRING)
+    var status: RecordStatus = RecordStatus.ACTIVE,
+    @Column(name = "created_by", nullable = false)
+    var createdBy: Long = 0,
+    @Column(name = "created_at", nullable = false)
+    var createdAt: Instant = Instant.now(),
+    @Column(name = "updated_by", nullable = false)
+    var updatedBy: Long = 0,
+    @Column(name = "updated_at", nullable = false)
+    var updatedAt: Instant = Instant.now(),
+)
+
+@Entity
+@Table(name = "recruitment_position")
+class RecruitmentPosition(
+    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+    var id: Long? = null,
+    @Column(name = "department_name", nullable = false)
+    var departmentName: String = "",
+    @Column(name = "position_name", nullable = false)
+    var positionName: String = "",
     @Enumerated(EnumType.STRING)
     var status: RecordStatus = RecordStatus.ACTIVE,
     @Column(name = "created_by", nullable = false)

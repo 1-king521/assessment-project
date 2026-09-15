@@ -2,6 +2,7 @@ package com.acme.assessment.service
 
 import com.acme.assessment.config.AppProperties
 import com.acme.assessment.entity.User
+import com.acme.assessment.dto.DingTalkProfileResponse
 import com.acme.assessment.repository.UserRepository
 import com.fasterxml.jackson.databind.JsonNode
 import org.slf4j.LoggerFactory
@@ -24,6 +25,40 @@ class DingTalkUserService(
     private val client = restClientBuilder.clone().baseUrl(properties.dingtalk.apiBaseUrl).build()
     private val oapiClient = restClientBuilder.clone().baseUrl(properties.dingtalk.oapiBaseUrl).build()
     @Volatile private var token: CachedToken? = null
+
+    fun lookupProfile(phone: String): DingTalkProfileResponse {
+        val mobile = normalizeMobile(phone)
+        if (mobile.isBlank()) return DingTalkProfileResponse(false, "手机号格式不正确")
+        if (!properties.dingtalk.enabled) return DingTalkProfileResponse(false, "钉钉通知未启用，请手动填写部门和岗位")
+        return try {
+            val lookup = findByMobile(mobile)
+            val result = lookup.result
+            val userId = result?.path("userid")?.asText(null)
+            if (userId.isNullOrBlank()) {
+                DingTalkProfileResponse(false, lookup.detail ?: "未匹配到钉钉信息")
+            } else {
+                val departmentId = result.path("dept_id_list")
+                    .takeIf { it.isArray && it.size() > 0 }
+                    ?.get(0)?.asLong()
+                val departmentName = departmentId?.let { getDepartmentName(it) }
+                val positionName = result.path("title").asText(null)
+                    ?.takeIf { it.isNotBlank() }
+
+                DingTalkProfileResponse(
+                    matched = true,
+                    message = "已读取钉钉信息，请确认部门和岗位",
+                    userId = userId,
+                    name = result.path("name").asText(null),
+                    departmentId = departmentId,
+                    departmentName = departmentName,
+                    positionName = positionName,
+                )
+            }
+        } catch (ex: RestClientException) {
+            logger.warn("DingTalk profile lookup failed for phone {}", mobile, ex)
+            DingTalkProfileResponse(false, ex.message ?: "钉钉接口调用失败，请手动填写部门和岗位")
+        }
+    }
 
     fun resolveAndCache(user: User): String? {
         val mobile = normalizeMobile(user.phone)
@@ -141,6 +176,33 @@ class DingTalkUserService(
         } catch (ex: Exception) {
             logger.error("遍历钉钉部门查找手机号 {} 时异常", mobile, ex)
             throw RestClientException("查询钉钉用户失败: ${ex.message}", ex)
+        }
+    }
+
+    /**
+     * 获取部门名称
+     */
+    private fun getDepartmentName(deptId: Long): String? {
+        return try {
+            val accessToken = accessToken()
+            val form = LinkedMultiValueMap<String, String>().apply { add("dept_id", deptId.toString()) }
+            val response = oapiClient.post()
+                .uri { it.path("/topapi/v2/department/get").queryParam("access_token", accessToken).build() }
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                .body(form)
+                .retrieve().body(JsonNode::class.java)
+                ?: return null
+
+            val errcode = response.path("errcode").asText("").toIntOrNull() ?: -1
+            if (errcode != 0) {
+                logger.warn("获取部门 {} 详情失败，errcode={}", deptId, errcode)
+                return null
+            }
+
+            response.path("result").path("name").asText(null)
+        } catch (ex: Exception) {
+            logger.warn("获取部门 {} 名称时异常", deptId, ex)
+            null
         }
     }
 

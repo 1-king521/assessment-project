@@ -11,6 +11,7 @@ import com.acme.assessment.entity.AssessmentTemplate
 import com.acme.assessment.entity.AssessmentTemplateVersion
 import com.acme.assessment.entity.Department
 import com.acme.assessment.entity.JobPosition
+import com.acme.assessment.entity.RecruitmentPosition
 import com.acme.assessment.entity.RecordStatus
 import com.acme.assessment.entity.TemplateStatus
 import com.acme.assessment.entity.TemplateVersionStatus
@@ -21,6 +22,7 @@ import com.acme.assessment.repository.AssessmentTemplateVersionRepository
 import com.acme.assessment.repository.AssessmentTaskRepository
 import com.acme.assessment.repository.DepartmentRepository
 import com.acme.assessment.repository.JobPositionRepository
+import com.acme.assessment.repository.RecruitmentPositionRepository
 import com.acme.assessment.repository.RoleRepository
 import com.acme.assessment.repository.UserRepository
 import com.acme.assessment.web.BusinessException
@@ -40,6 +42,7 @@ class AdminService(
     private val userRepository: UserRepository,
     private val roleRepository: RoleRepository,
     private val positionRepository: JobPositionRepository,
+    private val recruitmentPositionRepository: RecruitmentPositionRepository,
     private val templateRepository: AssessmentTemplateRepository,
     private val versionRepository: AssessmentTemplateVersionRepository,
     private val taskRepository: AssessmentTaskRepository,
@@ -150,20 +153,15 @@ class AdminService(
 
     @Transactional
     fun createPosition(request: CreatePositionRequest): PositionResponse {
-        val actor = requireRole("HR_MANAGER", "ADMIN")
-        val department = departmentRepository.findById(request.departmentId)
-            .orElseThrow { NotFoundException("部门") }
-        if (department.status != RecordStatus.ACTIVE) throw ConflictException("DEPARTMENT_INACTIVE", "部门未启用")
-        val code = request.positionCode.trim()
-        if (positionRepository.findAll().any { it.positionCode == code }) {
-            throw ConflictException("POSITION_CODE_EXISTS", "岗位编码已存在")
-        }
+        val actor = requireRole("HR", "HR_MANAGER", "ADMIN")
+        val department = request.departmentName.trim()
+        val name = request.positionName.trim()
+        if (recruitmentPositionRepository.existsByDepartmentNameAndPositionName(department, name))
+            throw ConflictException("POSITION_EXISTS", "该部门下岗位已存在")
         val now = clock.instant()
-        return positionRepository.save(JobPosition(
-            departmentId = requireNotNull(department.id),
-            positionCode = code,
-            positionName = request.positionName.trim(),
-            description = request.description?.trim(),
+        return recruitmentPositionRepository.save(RecruitmentPosition(
+            departmentName = department,
+            positionName = name,
             createdBy = actor.id,
             updatedBy = actor.id,
             createdAt = now,
@@ -172,7 +170,46 @@ class AdminService(
     }
 
     @Transactional(readOnly = true)
-    fun listPositions(): List<PositionResponse> = positionRepository.findAll().map { it.toResponse() }
+    fun listPositions(): List<PositionResponse> = recruitmentPositionRepository.findAll().map { it.toResponse() }
+
+    @Transactional
+    fun updatePosition(positionId: Long, request: UpdatePositionRequest): PositionResponse {
+        val actor = requireRole("HR", "HR_MANAGER", "ADMIN")
+        val position = recruitmentPositionRepository.findById(positionId)
+            .orElseThrow { NotFoundException("招聘岗位") }
+        val department = request.departmentName.trim()
+        val name = request.positionName.trim()
+        if (recruitmentPositionRepository.existsByDepartmentNameAndPositionNameAndIdNot(department, name, positionId)) {
+            throw ConflictException("POSITION_EXISTS", "该部门下岗位已存在")
+        }
+        position.departmentName = department
+        position.positionName = name
+        position.updatedBy = actor.id
+        position.updatedAt = clock.instant()
+        return recruitmentPositionRepository.save(position).toResponse()
+    }
+
+    @Transactional
+    fun updatePositionStatus(positionId: Long, request: UpdatePositionStatusRequest): PositionResponse {
+        val actor = requireRole("HR", "HR_MANAGER", "ADMIN")
+        val position = recruitmentPositionRepository.findById(positionId)
+            .orElseThrow { NotFoundException("招聘岗位") }
+        position.status = request.status
+        position.updatedBy = actor.id
+        position.updatedAt = clock.instant()
+        return recruitmentPositionRepository.save(position).toResponse()
+    }
+
+    @Transactional
+    fun deletePosition(positionId: Long) {
+        requireRole("HR", "HR_MANAGER", "ADMIN")
+        val position = recruitmentPositionRepository.findById(positionId)
+            .orElseThrow { NotFoundException("招聘岗位") }
+        if (templateRepository.existsByPositionId(positionId) || taskRepository.existsByPositionId(positionId)) {
+            throw ConflictException("POSITION_IN_USE", "岗位已被模板或测评任务使用，请改为禁用")
+        }
+        recruitmentPositionRepository.delete(position)
+    }
 
     @Transactional(readOnly = true)
     fun listReviewers(positionId: Long? = null): List<ReviewerResponse> {
@@ -181,15 +218,72 @@ class AdminService(
         val reviewerRoleId = requireNotNull(reviewerRole.id)
         val users = if (positionId == null) userRepository.findAll().filter { it.roleId == reviewerRoleId && it.status == UserStatus.ACTIVE }
         else userRepository.findAllByRoleIdAndPositionIdAndStatus(reviewerRoleId, positionId, UserStatus.ACTIVE)
+
+        val departments = departmentRepository.findAll().associateBy { it.id }
+        val positions = positionRepository.findAll().associateBy { it.id }
+
         return users.sortedWith(compareBy<User> { it.realName.lowercase() }.thenBy { it.id ?: Long.MAX_VALUE })
-            .map { ReviewerResponse(requireNotNull(it.id), it.username, it.realName, it.departmentId, it.positionId) }
+            .map {
+                val deptName = it.requestedDepartmentName
+                    ?: it.departmentId?.let { deptId -> departments[deptId]?.departmentName }
+                val posName = it.requestedPositionName
+                    ?: it.positionId?.let { posId -> positions[posId]?.positionName }
+
+                ReviewerResponse(
+                    id = requireNotNull(it.id),
+                    username = it.username,
+                    realName = it.realName,
+                    departmentId = it.departmentId,
+                    positionId = it.positionId,
+                    departmentName = deptName,
+                    positionName = posName
+                )
+            }
+    }
+
+    @Transactional(readOnly = true)
+    fun listReviewersGroupedByDepartment(): ReviewersByDepartmentResponse {
+        requireRole("HR", "HR_MANAGER", "ADMIN")
+        val reviewerRole = roleRepository.findByRoleCode("REVIEWER") ?: throw NotFoundException("REVIEWER角色")
+        val reviewerRoleId = requireNotNull(reviewerRole.id)
+        val users = userRepository.findAll().filter { it.roleId == reviewerRoleId && it.status == UserStatus.ACTIVE }
+
+        val departments = departmentRepository.findAll().associateBy { it.id }
+        val positions = positionRepository.findAll().associateBy { it.id }
+
+        val grouped = users
+            .mapNotNull { user ->
+                val deptName = user.requestedDepartmentName
+                    ?: user.departmentId?.let { deptId -> departments[deptId]?.departmentName }
+                if (deptName.isNullOrBlank()) null else user to deptName
+            }
+            .groupBy { it.second }
+            .mapValues { (_, pairs) ->
+                pairs.sortedWith(compareBy<Pair<User, String>> { it.first.realName.lowercase() }.thenBy { it.first.id ?: Long.MAX_VALUE })
+                    .map { (user, deptName) ->
+                        val posName = user.requestedPositionName
+                            ?: user.positionId?.let { posId -> positions[posId]?.positionName }
+
+                        ReviewerResponse(
+                            id = requireNotNull(user.id),
+                            username = user.username,
+                            realName = user.realName,
+                            departmentId = user.departmentId,
+                            positionId = user.positionId,
+                            departmentName = deptName,
+                            positionName = posName
+                        )
+                    }
+            }
+
+        return ReviewersByDepartmentResponse(grouped)
     }
 
     @Transactional
     fun createTemplate(request: CreateTemplateRequest): TemplateResponse {
         val actor = requireRole("HR", "HR_MANAGER", "REVIEWER", "ADMIN")
         validateJson(request.schemaJson)
-        positionRepository.findById(request.positionId).orElseThrow { NotFoundException("招聘岗位") }
+        recruitmentPositionRepository.findById(request.positionId).orElseThrow { NotFoundException("招聘岗位") }
         if (templateRepository.existsByPositionId(request.positionId)) {
             throw ConflictException("POSITION_TEMPLATE_EXISTS", "该岗位已有测评模板，请通过替换模板生成新版本")
         }
@@ -313,7 +407,7 @@ class AdminService(
     }
 
     private fun Department.toResponse() = DepartmentResponse(requireNotNull(id), departmentCode, departmentName, description, status)
-    private fun JobPosition.toResponse() = PositionResponse(requireNotNull(id), departmentId, positionCode, positionName, description, defaultTemplateId, status)
+    private fun RecruitmentPosition.toResponse() = PositionResponse(requireNotNull(id), departmentName, positionName, status)
     private fun AssessmentTemplateVersion.toResponse() = TemplateVersionResponse(requireNotNull(id), templateId, versionNo, schemaJson, versionStatus)
     private fun User.toResponse() = UserResponse(
         requireNotNull(id), username, realName, roleId, departmentId, positionId, status.name,

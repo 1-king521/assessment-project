@@ -42,7 +42,7 @@ class SecurityConfig {
         .csrf { it.disable() }
         .sessionManagement { it.sessionCreationPolicy(SessionCreationPolicy.STATELESS) }
         .authorizeHttpRequests {
-            it.requestMatchers("/actuator/health", "/api/auth/login", "/api/auth/register").permitAll()
+            it.requestMatchers("/actuator/health", "/api/auth/login", "/api/auth/register", "/api/auth/dingtalk-profile").permitAll()
                 .requestMatchers("/api/public/**").permitAll()
                 .anyRequest().authenticated()
         }

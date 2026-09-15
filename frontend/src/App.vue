@@ -38,11 +38,18 @@ const templateForm = ref({ templateName: '', positionId: '', questions: [] })
 const editingTemplateVersion = ref(null)
 const templateDraft = ref(null)
 const templatePreview = ref(null)
+const recruitmentPositions = ref([])
+const showPositionCreate = ref(false)
+const positionForm = ref({ departmentName: '', positionName: '' })
+const editingPosition = ref(null)
+const positionSaving = ref(false)
 const createLoading = ref(false)
 const positions = ref([])
 const templates = ref([])
 const templateVersions = ref([])
 const reviewers = ref([])
+const reviewersByDepartment = ref({})
+const selectedDepartment = ref('')
 const detailReviewerIds = ref([])
 const assigningReviewers = ref(false)
 const showReviewerPicker = ref(false)
@@ -71,6 +78,7 @@ const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.v
 const recordTotalPages = computed(() => Math.max(1, Math.ceil(recordTotal.value / recordPageSize.value)))
 const canPublish = computed(() => ['ADMIN', 'HR_MANAGER'].includes(user.value?.role))
 const canManageUsers = computed(() => user.value?.role === 'ADMIN')
+const canManagePositions = computed(() => ['HR', 'HR_MANAGER', 'ADMIN'].includes(user.value?.role))
 const availableTemplatePositions = computed(() => templatePositions.value.filter(
   position => !templateList.value.some(template => template.positionId === position.id)
 ))
@@ -98,15 +106,31 @@ const detailQuestions = computed(() => {
 })
 const selectedReviewers = computed(() => reviewers.value.filter(item => detailReviewerIds.value.includes(item.id)))
 const filteredReviewers = computed(() => {
+  let list = reviewers.value
+
+  // 先按部门筛选
+  if (selectedDepartment.value) {
+    list = list.filter(item => item.departmentName === selectedDepartment.value)
+  }
+
+  // 再按搜索关键词筛选
   const keyword = reviewerSearch.value.trim().toLowerCase()
-  if (!keyword) return reviewers.value
-  return reviewers.value.filter(item => `${item.realName} ${item.username}`.toLowerCase().includes(keyword))
+  if (keyword) {
+    list = list.filter(item => `${item.realName} ${item.username}`.toLowerCase().includes(keyword))
+  }
+
+  return list
 })
 const allFilteredReviewersSelected = computed(() => filteredReviewers.value.length > 0 && filteredReviewers.value.every(item => detailReviewerIds.value.includes(item.id)))
+const availableDepartments = computed(() => {
+  const depts = new Set(reviewers.value.map(r => r.departmentName).filter(Boolean))
+  return Array.from(depts).sort()
+})
 
 async function request(path, options = {}) {
   const headers = { ...(options.headers || {}) }
-  if (token.value) headers.Authorization = `Bearer ${token.value}`
+  const publicAuthEndpoint = ['/api/auth/login', '/api/auth/register', '/api/auth/dingtalk-profile'].includes(path)
+  if (token.value && !publicAuthEndpoint) headers.Authorization = `Bearer ${token.value}`
   if (options.body && !(options.body instanceof FormData)) headers['Content-Type'] = 'application/json'
   const response = await fetch(path, { ...options, headers })
   const body = await response.json().catch(() => ({}))
@@ -256,6 +280,63 @@ async function loadTemplates() {
   } catch (error) { message.value = error.message } finally { templateLoading.value = false }
 }
 
+async function loadRecruitmentPositions() {
+  view.value = 'positions'
+  try { recruitmentPositions.value = await request('/api/positions') } catch (error) { message.value = error.message }
+}
+
+function openPositionForm(position = null) {
+  editingPosition.value = position
+  positionForm.value = position
+    ? { departmentName: position.departmentName, positionName: position.positionName }
+    : { departmentName: '', positionName: '' }
+  showPositionCreate.value = true
+}
+
+function closePositionForm() {
+  showPositionCreate.value = false
+  editingPosition.value = null
+  positionForm.value = { departmentName: '', positionName: '' }
+}
+
+async function saveRecruitmentPosition() {
+  positionSaving.value = true
+  try {
+    const path = editingPosition.value ? `/api/positions/${editingPosition.value.id}` : '/api/positions'
+    await request(path, { method: editingPosition.value ? 'PUT' : 'POST', body: JSON.stringify(positionForm.value) })
+    const action = editingPosition.value ? '更新' : '创建'
+    closePositionForm()
+    message.value = `招聘岗位已${action}`
+    await loadRecruitmentPositions()
+  } catch (error) {
+    message.value = error.message
+  } finally {
+    positionSaving.value = false
+  }
+}
+
+async function toggleRecruitmentPosition(position) {
+  const nextStatus = position.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'
+  try {
+    await request(`/api/positions/${position.id}/status`, { method: 'PUT', body: JSON.stringify({ status: nextStatus }) })
+    message.value = `招聘岗位已${nextStatus === 'ACTIVE' ? '启用' : '禁用'}`
+    await loadRecruitmentPositions()
+  } catch (error) {
+    message.value = error.message
+  }
+}
+
+async function deleteRecruitmentPosition(position) {
+  if (!window.confirm(`确定删除“${position.departmentName} - ${position.positionName}”吗？此操作无法撤销。`)) return
+  try {
+    await request(`/api/positions/${position.id}`, { method: 'DELETE' })
+    message.value = '招聘岗位已删除'
+    await loadRecruitmentPositions()
+  } catch (error) {
+    message.value = error.message
+  }
+}
+
 async function loadRecords() {
   view.value = 'records'
   recordLoading.value = true
@@ -401,7 +482,8 @@ function formatFileSize(bytes) {
 }
 
 function positionName(positionId) {
-  return templatePositions.value.find(item => item.id === positionId)?.positionName || `岗位 #${positionId}`
+  const position = templatePositions.value.find(item => item.id === positionId)
+  return position ? `${position.departmentName} - ${position.positionName}` : `岗位 #${positionId}`
 }
 
 function addQuestion() {
@@ -636,7 +718,7 @@ async function openDetail(id) {
     detailTab.value = 'overview'
     extendDeadline.value = detail.value.deadline.slice(0, 16)
     detailReviewerIds.value = detail.value.assignments.filter(item => item.status !== 'CANCELLED').map(item => item.reviewerUserId)
-    if (detail.value.status === 'SUBMITTED') reviewers.value = await request(`/api/reviewers?positionId=${detail.value.position.id}`)
+    if (detail.value.status === 'SUBMITTED') reviewers.value = await request('/api/reviewers')
     await ensureDetailRecordTab()
   } catch (error) { message.value = error.message }
 }
@@ -678,6 +760,7 @@ function toggleAllFilteredReviewers() {
 
 function openReviewerPicker() {
   reviewerSearch.value = ''
+  selectedDepartment.value = ''
   showReviewerPicker.value = true
 }
 
@@ -823,7 +906,7 @@ onUnmounted(() => { clearRecordFileUrls(); clearDetailFileUrls() })
   <main v-if="loggedIn" class="app-shell">
     <aside class="sidebar">
       <div class="brand"><span class="brand-mark small">RA</span><span>测评工作台</span></div>
-      <nav><a class="nav-item" :class="{active: view === 'tasks'}" @click="view = 'tasks'">任务管理 <span>⌘</span></a><a class="nav-item" :class="{active: view === 'records'}" @click="loadRecords">测评记录</a><a class="nav-item" :class="{active: view === 'templates'}" @click="loadTemplates">模板管理</a><a v-if="canManageUsers" class="nav-item" :class="{active: view === 'users'}" @click="loadPendingUsers">账号审核 <span v-if="pendingUsers.length">{{ pendingUsers.length }}</span></a></nav>
+      <nav><a class="nav-item" :class="{active: view === 'tasks'}" @click="view = 'tasks'">任务管理 <span>⌘</span></a><a class="nav-item" :class="{active: view === 'records'}" @click="loadRecords">测评记录</a><a v-if="canManagePositions" class="nav-item" :class="{active: view === 'positions'}" @click="loadRecruitmentPositions">招聘岗位</a><a class="nav-item" :class="{active: view === 'templates'}" @click="loadTemplates">模板管理</a><a v-if="canManageUsers" class="nav-item" :class="{active: view === 'users'}" @click="loadPendingUsers">账号审核 <span v-if="pendingUsers.length">{{ pendingUsers.length }}</span></a></nav>
       <div class="sidebar-foot"><span class="avatar">{{ user?.realName?.slice(0, 1) || '管' }}</span><div><strong>{{ user?.realName }}</strong><small>{{ user?.role }}</small></div><button class="icon-button" title="退出登录" @click="logout">↪</button></div>
     </aside>
     <section class="content">
@@ -853,6 +936,10 @@ onUnmounted(() => { clearRecordFileUrls(); clearDetailFileUrls() })
           <footer class="pagination"><span>第 {{ recordPage }} / {{ recordTotalPages }} 页</span><div><button :disabled="recordPage <= 1" @click="recordPage--; loadRecords()">上一页</button><button :disabled="recordPage >= recordTotalPages" @click="recordPage++; loadRecords()">下一页</button></div></footer>
         </section>
       </template>
+      <template v-else-if="view === 'positions'">
+        <header class="topbar"><div><p class="eyebrow">CONFIGURATION / RECRUITMENT POSITIONS</p><h1>招聘岗位</h1></div><div class="top-actions"><button class="outline-button" @click="loadRecruitmentPositions">↻ 刷新数据</button><button class="primary-button compact" @click="openPositionForm()">＋ 新增岗位</button></div></header>
+        <section class="table-section"><div class="section-heading"><div><h2>招聘岗位列表</h2><span>{{ recruitmentPositions.length }} 个岗位</span></div></div><div class="table-scroll"><table><thead><tr><th>部门</th><th>岗位名称</th><th>状态</th><th>操作</th></tr></thead><tbody><tr v-for="position in recruitmentPositions" :key="position.id"><td>{{ position.departmentName }}</td><td><strong>{{ position.positionName }}</strong></td><td><span class="status-pill" :class="statusClass(position.status)">{{ position.status === 'ACTIVE' ? '启用' : '停用' }}</span></td><td><div class="version-actions"><button class="detail-button" @click="openPositionForm(position)">编辑</button><button class="outline-button" @click="toggleRecruitmentPosition(position)">{{ position.status === 'ACTIVE' ? '禁用' : '启用' }}</button><button class="outline-button danger-button" @click="deleteRecruitmentPosition(position)">删除</button></div></td></tr><tr v-if="!recruitmentPositions.length"><td colspan="4" class="empty">暂无招聘岗位</td></tr></tbody></table></div></section>
+      </template>
       <template v-else-if="view === 'templates'">
         <header class="topbar"><div><p class="eyebrow">CONFIGURATION / TEMPLATES</p><h1>模板管理</h1></div><div class="top-actions"><button class="outline-button" @click="loadTemplates">↻ 刷新数据</button><button class="primary-button compact" @click="openTemplateCreate">＋ 新建模板</button></div></header>
         <section class="table-section"><div class="section-heading"><div><h2>测评模板</h2><span>{{ templateList.length }} 个模板</span></div><span v-if="templateLoading" class="loading">正在加载...</span></div><div class="table-scroll"><table><thead><tr><th>模板名称</th><th>适用岗位</th><th>状态</th><th>模板负责人</th><th>操作</th></tr></thead><tbody><tr v-for="template in templateList" :key="template.id"><td><strong>{{ template.templateName }}</strong></td><td>{{ positionName(template.positionId) }}</td><td><span class="status-pill" :class="template.status === 'ACTIVE' ? 'status-reviewed' : ''">{{ template.status === 'ACTIVE' ? '启用' : '草稿' }}</span></td><td>#{{ template.ownerUserId }}</td><td><div class="version-actions"><button class="outline-button" @click="replaceTemplate(template)">替换模板</button><button class="detail-button" @click="openTemplateVersions(template)">版本历史 →</button></div></td></tr><tr v-if="!templateList.length"><td colspan="5" class="empty">暂无模板，请先新建模板</td></tr></tbody></table></div></section>
@@ -865,7 +952,7 @@ onUnmounted(() => { clearRecordFileUrls(); clearDetailFileUrls() })
   </main>
 
   <div v-if="detail" class="drawer-backdrop" @click.self="detail = null"><aside class="drawer"><header><div><p class="eyebrow">TASK DETAIL</p><h2>{{ detail.taskNo }}</h2></div><button class="close-button" title="关闭详情" @click="detail = null">×</button></header><div class="drawer-summary"><div><span>候选人</span><strong>{{ detail.candidateName }}</strong></div><span class="status-pill" :class="statusClass(detail.status)">{{ statusText(detail.status) }}</span></div><div class="detail-actions"><button v-if="detail.status === 'DRAFT'" class="primary-button compact" @click="operate('send')">发送任务</button><button v-if="['DRAFT','SENT','OPENED','IN_PROGRESS'].includes(detail.status)" class="outline-button" @click="operate('revoke')">撤回任务</button><button v-if="['DRAFT','SENT','OPENED','IN_PROGRESS'].includes(detail.status)" class="outline-button" @click="operate('regenerate-link')">重新生成链接</button><button v-if="!['REVOKED','ARCHIVED','REVIEWED'].includes(detail.status)" class="outline-button" @click="operate('extend')">保存延期</button><button v-if="['REVIEWED','REVOKED','EXPIRED'].includes(detail.status)" class="primary-button compact" @click="operate('archive')">归档任务</button></div><label v-if="!['REVOKED','ARCHIVED','REVIEWED'].includes(detail.status)" class="deadline-input">截止时间<input v-model="extendDeadline" type="datetime-local" /></label><div class="tabs"><button :class="{selected: detailTab === 'overview'}" @click="detailTab='overview'">概览</button><button :class="{selected: detailTab === 'review'}" @click="detailTab='review'">评估分配</button><button :class="{selected: detailTab === 'logs'}" @click="detailTab='logs'">操作日志</button></div><div v-if="detailTab === 'overview'" class="detail-content"><dl><dt>候选人联系方式</dt><dd>{{ detail.candidatePhone || '--' }} · {{ detail.candidateEmail || '--' }}</dd><dt>应聘岗位</dt><dd>{{ detail.position.name }}（{{ detail.position.code }}）</dd><dt>模板版本</dt><dd>v{{ detail.templateVersion.versionNo }} · {{ detail.templateVersion.status }}</dd><dt>截止时间</dt><dd>{{ formatDate(detail.deadline) }}</dd></dl><h3>答案（{{ detail.answers.length }}）</h3><div v-for="answer in detail.answers" :key="answer.id" class="answer-row"><strong>{{ answer.questionId }}</strong><code>{{ answer.answerJson }}</code></div><h3>附件（{{ detail.files.length }}）</h3><p v-if="!detail.files.length" class="muted">暂无附件</p><div v-for="file in detail.files" :key="file.id" class="file-row">{{ file.fileName }} <span>{{ file.sizeBytes }} bytes</span></div></div><div v-if="detailTab === 'review'" class="detail-content"><div v-if="detail.status === 'SUBMITTED' && detail.assignments.every(item => item.status === 'PENDING')" class="assignment-editor"><p class="muted">候选人已提交，请确认测评内容后选择评估人员。</p><div class="selected-reviewers"><span v-if="!selectedReviewers.length" class="muted">尚未选择评估人员</span><span v-for="reviewer in selectedReviewers" :key="reviewer.id" class="reviewer-chip">{{ reviewer.realName }}<button type="button" title="移除" @click="detailReviewerIds = detailReviewerIds.filter(id => id !== reviewer.id)">×</button></span></div><button type="button" class="outline-button" @click="openReviewerPicker">选择评估人员（{{ detailReviewerIds.length }}）</button><button class="primary-button" :disabled="assigningReviewers || !detailReviewerIds.length" @click="assignReviewers">{{ assigningReviewers ? '保存中...' : '分配评估人员' }}</button></div><p v-if="!detail.assignments.length" class="muted">尚未分配评估人员</p><div v-for="assignment in detail.assignments" :key="assignment.id" class="assignment-row"><div><strong>{{ assignment.reviewerUserName }}</strong><small>{{ assignment.status }}</small></div><div class="review-result">{{ assignment.conclusion || '未提交' }} <span v-if="assignment.score">{{ assignment.score }} 分</span></div></div></div><div v-if="detailTab === 'logs'" class="detail-content timeline"><div v-for="log in detail.operationLogs" :key="log.id"><span>{{ formatDate(log.createdAt) }}</span><strong>{{ log.action }}</strong><small>{{ log.fromStatus || '--' }} → {{ log.toStatus || '--' }}</small></div></div></aside></div>
-  <div v-if="showReviewerPicker" class="modal-backdrop reviewer-picker-backdrop" @click.self="showReviewerPicker = false"><section class="reviewer-picker"><header><div><p class="eyebrow">REVIEWER SELECTION</p><h2>选择评估人员</h2></div><button class="close-button" title="关闭选择窗口" @click="showReviewerPicker = false">×</button></header><div class="reviewer-picker-toolbar"><input v-model="reviewerSearch" autofocus placeholder="搜索姓名或账号" /><button type="button" class="detail-button" @click="toggleAllFilteredReviewers">{{ allFilteredReviewersSelected ? '取消全选' : '全选当前结果' }}</button></div><div class="reviewer-picker-list"><label v-for="reviewer in filteredReviewers" :key="reviewer.id" class="reviewer-option"><input v-model="detailReviewerIds" type="checkbox" :value="reviewer.id" /> <span>{{ reviewer.realName }} <small>{{ reviewer.username }}</small></span></label><p v-if="!filteredReviewers.length" class="empty">没有匹配的评估人员</p></div><footer class="modal-footer"><span class="muted">已选择 {{ detailReviewerIds.length }} 人</span><button type="button" class="outline-button" @click="showReviewerPicker = false">完成选择</button></footer></section></div>
+  <div v-if="showReviewerPicker" class="modal-backdrop reviewer-picker-backdrop" @click.self="showReviewerPicker = false"><section class="reviewer-picker"><header><div><p class="eyebrow">REVIEWER SELECTION</p><h2>选择评估人员</h2></div><button class="close-button" title="关闭选择窗口" @click="showReviewerPicker = false">×</button></header><div class="reviewer-picker-toolbar"><label class="department-filter">筛选部门<select v-model="selectedDepartment"><option value="">全部部门</option><option v-for="dept in availableDepartments" :key="dept" :value="dept">{{ dept }}</option></select></label><input v-model="reviewerSearch" placeholder="搜索姓名或账号" /><button type="button" class="detail-button" @click="toggleAllFilteredReviewers">{{ allFilteredReviewersSelected ? '取消全选' : '全选当前结果' }}</button></div><div class="reviewer-picker-list"><label v-for="reviewer in filteredReviewers" :key="reviewer.id" class="reviewer-option"><input v-model="detailReviewerIds" type="checkbox" :value="reviewer.id" /> <span>{{ reviewer.username }} {{ reviewer.realName }}</span></label><p v-if="!filteredReviewers.length" class="empty">没有匹配的评估人员</p></div><footer class="modal-footer"><span class="muted">已选择 {{ detailReviewerIds.length }} 人</span><button type="button" class="outline-button" @click="showReviewerPicker = false">完成选择</button></footer></section></div>
   <div v-if="recordDetail" class="drawer-backdrop record-backdrop" @click.self="closeRecord"><aside class="drawer record-drawer"><header><div><p class="eyebrow">ASSESSMENT RECORD</p><h2>{{ recordDetail.candidateName }}的测评记录</h2><p class="muted">{{ recordDetail.taskNo }} · {{ recordDetail.position.name }}</p></div><button class="close-button" title="关闭记录" @click="closeRecord">×</button></header><section class="record-summary"><div><span>模板版本</span><strong>v{{ recordDetail.templateVersion.versionNo }}</strong></div><div><span>提交时间</span><strong>{{ formatDate(recordDetail.submittedAt) }}</strong></div><div><span>结论时间</span><strong>{{ formatDate(recordDetail.finalConclusionAt || recordDetail.reviewedAt) }}</strong></div><div><span>记录状态</span><strong>{{ statusText(recordDetail.status) }}</strong></div></section><section class="record-section"><div class="record-section-heading"><h3>测评内容</h3><span>{{ recordQuestions.length }} 道题</span></div><article v-for="(question, questionIndex) in recordQuestions" :key="question.id || questionIndex" class="record-question"><div class="review-question-head"><strong>题目 {{ questionIndex + 1 }}</strong><small>{{ questionType(question.type) }}</small></div><p class="record-question-title">{{ question.title }}</p><div v-if="question.materials?.length" class="review-question-resources"><strong>参考资料</strong><div class="review-resource-grid"><div v-for="(material, materialIndex) in question.materials" :key="materialIndex" class="review-resource"><img v-if="isImageMaterial(material)" :src="material.url" :alt="material.name || '参考图片'" loading="lazy" /><a v-else :href="material.url" :download="material.name || '参考文件'" target="_blank" rel="noopener">{{ material.name || '参考文件' }}<span>下载</span></a></div></div></div><div class="record-answer"><strong>候选人答案</strong><p>{{ formatAnswer(recordAnswer(question.id)?.answerJson) }}</p></div><div v-if="recordFilesForQuestion(question.id).length" class="review-question-submissions"><strong>候选人附件</strong><div v-for="file in recordFilesForQuestion(question.id)" :key="file.id" class="review-file"><div v-if="isImageFile(file)" class="review-file-preview"><img v-if="recordFileUrls[file.id]" :src="recordFileUrls[file.id]" :alt="file.fileName" /><span v-else>图片加载中...</span></div><div class="review-file-info"><div class="review-file-title"><a v-if="recordFileUrls[file.id]" :href="recordFileUrls[file.id]" :download="file.fileName" target="_blank" rel="noopener">{{ file.fileName }}</a><strong v-else>{{ file.fileName }}</strong></div><small>{{ file.contentType }} · {{ formatFileSize(file.sizeBytes) }}</small></div></div></div></article><p v-if="!recordQuestions.length" class="empty">历史模板题目读取失败</p></section><section class="record-section"><div class="record-section-heading"><h3>评估结果</h3><span>{{ recordDetail.finalConclusion ? '系统自动处理' : `${recordDetail.assignments.length} 位评估人员` }}</span></div><article v-if="recordDetail.finalConclusion" class="record-review"><div><strong>系统自动处理</strong><small>{{ formatDate(recordDetail.finalConclusionAt) }}</small></div><span class="conclusion-pill" :class="conclusionClass(recordDetail.finalConclusion)">{{ conclusionText(recordDetail.finalConclusion) }}</span><p>{{ recordDetail.finalConclusionReason || '截止时间内未提交测评' }}</p></article><article v-for="assignment in recordDetail.assignments" :key="assignment.id" class="record-review"><div><strong>{{ assignment.reviewerUserName }}</strong><small>{{ formatDate(assignment.reviewSubmittedAt || assignment.completedAt) }}</small></div><span class="conclusion-pill" :class="conclusionClass(assignment.conclusion)">{{ conclusionText(assignment.conclusion) }}</span><p v-if="assignment.reason">{{ assignment.reason }}</p><p v-else class="muted">未填写评估说明</p></article></section><section class="record-section"><div class="record-section-heading"><h3>操作时间线</h3><span>{{ recordDetail.operationLogs.length }} 条记录</span></div><div class="detail-content timeline record-timeline"><div v-for="log in recordDetail.operationLogs" :key="log.id"><span>{{ formatDate(log.createdAt) }}</span><strong>{{ log.action }}</strong><small>{{ log.fromStatus || '--' }} → {{ log.toStatus || '--' }}</small></div></div></section></aside></div>
   <div v-if="showCreate" class="modal-backdrop" @click.self="showCreate = false">
     <section class="create-modal">
@@ -876,7 +963,7 @@ onUnmounted(() => { clearRecordFileUrls(); clearDetailFileUrls() })
           <label>手机号 *<input v-model="createForm.candidatePhone" required maxlength="30" pattern="\+?[0-9]{6,30}" placeholder="请输入手机号" /></label>
           <label>邮箱<input v-model="createForm.candidateEmail" type="email" maxlength="120" placeholder="选填" /></label>
           <label>候选人来源<input v-model="createForm.candidateSource" maxlength="50" placeholder="例如：招聘网站" /></label>
-          <label>应聘岗位 *<select v-model="createForm.positionId" required @change="handlePositionChange"><option value="">请选择岗位</option><option v-for="position in positions" :key="position.id" :value="position.id">{{ position.positionName }}（{{ position.positionCode }}）</option></select></label>
+          <label>应聘岗位 *<select v-model="createForm.positionId" required @change="handlePositionChange"><option value="">请选择岗位</option><option v-for="position in positions" :key="position.id" :value="position.id">{{ position.departmentName }} - {{ position.positionName }}</option></select></label>
           <label>测评模板 *<select v-model="createForm.templateId" required :disabled="!createForm.positionId || !createTemplates.length" @change="loadVersions"><option value="">{{ createForm.positionId ? (createTemplates.length ? '请选择模板' : '该岗位暂无可用模板') : '请先选择岗位' }}</option><option v-for="template in createTemplates" :key="template.id" :value="template.id">{{ template.templateName }}</option></select></label>
           <label>模板版本 *<select v-model="createForm.templateVersionId" required><option value="">请先选择模板</option><option v-for="version in templateVersions" :key="version.id" :value="version.id">v{{ version.versionNo }} · {{ version.status }}</option></select></label>
           <label>截止时间 *<input v-model="createForm.deadline" type="datetime-local" required /></label>
@@ -886,7 +973,8 @@ onUnmounted(() => { clearRecordFileUrls(); clearDetailFileUrls() })
     </section>
   </div>
   <div v-if="createdLink" class="modal-backdrop" @click.self="createdLink = ''"><section class="link-modal"><header><div><p class="eyebrow">ASSESSMENT LINK READY</p><h2>测试链接已生成</h2></div><button class="close-button" title="关闭链接窗口" @click="createdLink = ''">×</button></header><p class="muted">复制下面的链接，在浏览器中打开即可进入候选人测评页面。</p><input class="link-field" :value="createdLink" readonly /><footer class="modal-footer"><button type="button" class="outline-button" @click="copyCreatedLink">复制链接</button></footer></section></div>
-  <div v-if="showTemplateCreate" class="modal-backdrop" @click.self="showTemplateCreate = false"><section class="create-modal template-editor"><header><div><p class="eyebrow">NEW ASSESSMENT TEMPLATE</p><h2>{{ editingTemplateVersion ? '替换测评模板' : '新建测评模板' }}</h2><p class="muted">用同一套结构配置问卷、文本题和实践任务。</p></div><button class="close-button" @click="showTemplateCreate = false">×</button></header><form @submit.prevent="createTemplate" class="create-form"><div class="form-grid"><label>模板名称 *<input v-model="templateForm.templateName" :disabled="Boolean(editingTemplateVersion)" required placeholder="例如：Java开发工程师测评" /></label><label>适用岗位 *<select v-model="templateForm.positionId" :disabled="Boolean(editingTemplateVersion)" required><option value="">请选择岗位</option><option v-for="position in (editingTemplateVersion ? templatePositions : availableTemplatePositions)" :key="position.id" :value="position.id">{{ position.positionName }}（{{ position.positionCode }}）</option></select></label></div><div class="question-editor"><div class="section-heading"><div><h2>题目配置</h2><span>{{ templateForm.questions.length }} 道题</span></div><button type="button" class="outline-button" @click="addQuestion">＋ 添加题目</button></div><article v-for="(question, index) in templateForm.questions" :key="question.id" class="question-card"><div class="question-card-head"><strong>题目 {{ index + 1 }}</strong><button type="button" class="icon-button dark" @click="removeQuestion(index)">×</button></div><div class="form-grid"><label>题目标题 *<textarea v-model="question.title" required rows="3" placeholder="请输入候选人需要回答的问题"></textarea></label><label>题型<select v-model="question.type"><option value="TEXT">文本题</option><option value="SINGLE">单选题</option><option value="MULTIPLE">多选题</option><option value="FILE">文件上传</option><option value="PRACTICAL">综合实践题</option></select></label></div><label class="required-check"><input v-model="question.required" type="checkbox" /> 必填题</label><div v-if="questionNeedsOptions(question)" class="options-grid"><input v-for="(_, optionIndex) in question.options" :key="optionIndex" v-model="question.options[optionIndex]" :placeholder="`选项 ${optionIndex + 1}`" /><button type="button" class="detail-button" @click="question.options.push('')">＋选项</button></div><div class="material-box"><div class="material-head"><strong>候选人参考资料</strong><button type="button" class="detail-button" @click="addMaterial(question)">＋ 添加文件</button></div><div v-for="(material, materialIndex) in question.materials" :key="materialIndex" class="material-row"><span class="material-name">{{ material.name || '未选择文件' }}</span><input type="file" accept="image/*,.pdf,.doc,.docx,.zip,.rar,.blend,.ma,.max" @change="handleMaterialFile(question, $event, material)" /><button type="button" class="icon-button dark" title="删除文件" @click="removeMaterial(question, materialIndex)">×</button></div><p v-if="!question.materials.length" class="muted">上传后候选人可在答题时查看。</p></div><div v-if="questionNeedsFiles(question)" class="advanced-box"><strong>提交设置</strong><label class="required-check"><input v-model="question.submission.files" type="checkbox" /> 要求候选人上传文件</label><input v-model="question.submission.fileTypes" placeholder="允许格式，例如 .png, .blend, .pdf" /></div></article></div><footer class="modal-footer"><button type="button" class="outline-button" @click="showTemplateCreate = false">取消</button><button type="submit" class="primary-button" :disabled="templateSaving">{{ templateSaving ? '保存中...' : editingTemplateVersion ? '保存为新版本' : '保存草稿模板' }}</button></footer></form></section></div>
+  <div v-if="showTemplateCreate" class="modal-backdrop" @click.self="showTemplateCreate = false"><section class="create-modal template-editor"><header><div><p class="eyebrow">NEW ASSESSMENT TEMPLATE</p><h2>{{ editingTemplateVersion ? '替换测评模板' : '新建测评模板' }}</h2><p class="muted">用同一套结构配置问卷、文本题和实践任务。</p></div><button class="close-button" @click="showTemplateCreate = false">×</button></header><form @submit.prevent="createTemplate" class="create-form"><div class="form-grid"><label>模板名称 *<input v-model="templateForm.templateName" :disabled="Boolean(editingTemplateVersion)" required placeholder="例如：Java开发工程师测评" /></label><label>适用岗位 *<select v-model="templateForm.positionId" :disabled="Boolean(editingTemplateVersion)" required><option value="">请选择岗位</option><option v-for="position in (editingTemplateVersion ? templatePositions : availableTemplatePositions)" :key="position.id" :value="position.id">{{ position.departmentName }} - {{ position.positionName }}</option></select></label></div><div class="question-editor"><div class="section-heading"><div><h2>题目配置</h2><span>{{ templateForm.questions.length }} 道题</span></div><button type="button" class="outline-button" @click="addQuestion">＋ 添加题目</button></div><article v-for="(question, index) in templateForm.questions" :key="question.id" class="question-card"><div class="question-card-head"><strong>题目 {{ index + 1 }}</strong><button type="button" class="icon-button dark" @click="removeQuestion(index)">×</button></div><div class="form-grid"><label>题目标题 *<textarea v-model="question.title" required rows="3" placeholder="请输入候选人需要回答的问题"></textarea></label><label>题型<select v-model="question.type"><option value="TEXT">文本题</option><option value="SINGLE">单选题</option><option value="MULTIPLE">多选题</option><option value="FILE">文件上传</option><option value="PRACTICAL">综合实践题</option></select></label></div><label class="required-check"><input v-model="question.required" type="checkbox" /> 必填题</label><div v-if="questionNeedsOptions(question)" class="options-grid"><input v-for="(_, optionIndex) in question.options" :key="optionIndex" v-model="question.options[optionIndex]" :placeholder="`选项 ${optionIndex + 1}`" /><button type="button" class="detail-button" @click="question.options.push('')">＋选项</button></div><div class="material-box"><div class="material-head"><strong>候选人参考资料</strong><button type="button" class="detail-button" @click="addMaterial(question)">＋ 添加文件</button></div><div v-for="(material, materialIndex) in question.materials" :key="materialIndex" class="material-row"><span class="material-name">{{ material.name || '未选择文件' }}</span><input type="file" accept="image/*,.pdf,.doc,.docx,.zip,.rar,.blend,.ma,.max" @change="handleMaterialFile(question, $event, material)" /><button type="button" class="icon-button dark" title="删除文件" @click="removeMaterial(question, materialIndex)">×</button></div><p v-if="!question.materials.length" class="muted">上传后候选人可在答题时查看。</p></div><div v-if="questionNeedsFiles(question)" class="advanced-box"><strong>提交设置</strong><label class="required-check"><input v-model="question.submission.files" type="checkbox" /> 要求候选人上传文件</label><input v-model="question.submission.fileTypes" placeholder="允许格式，例如 .png, .blend, .pdf" /></div></article></div><footer class="modal-footer"><button type="button" class="outline-button" @click="showTemplateCreate = false">取消</button><button type="submit" class="primary-button" :disabled="templateSaving">{{ templateSaving ? '保存中...' : editingTemplateVersion ? '保存为新版本' : '保存草稿模板' }}</button></footer></form></section></div>
   <div v-if="templateDraft?.versions" class="modal-backdrop" @click.self="templateDraft = null"><section class="link-modal version-modal"><header><div><p class="eyebrow">VERSION HISTORY</p><h2>{{ templateDraft.template.templateName }}</h2></div><button class="close-button" @click="templateDraft = null">×</button></header><div v-for="version in templateDraft.versions" :key="version.id" class="version-row"><div><strong>版本 v{{ version.versionNo }}</strong><small>{{ versionStatusText(version.status) }}</small></div><div class="version-actions"><button type="button" class="detail-button" @click="previewTemplateVersion(version)">查看</button><button type="button" class="outline-button" @click="editTemplateVersion(version)">选择编辑</button><button v-if="canPublish && ['DRAFT','PENDING','ARCHIVED'].includes(version.status)" class="primary-button compact" @click="publishTemplate(version)">发布</button><button v-if="canPublish && version.status !== 'PUBLISHED'" type="button" class="outline-button danger-button" @click="deleteTemplateVersion(version)">删除</button><span v-if="version.status === 'PUBLISHED'" class="status-pill status-reviewed">当前发布</span></div></div></section></div>
+  <div v-if="showPositionCreate" class="modal-backdrop" @click.self="closePositionForm"><section class="create-modal"><header><h2>{{ editingPosition ? '编辑招聘岗位' : '新增招聘岗位' }}</h2><button class="close-button" title="关闭" @click="closePositionForm">×</button></header><form class="create-form" @submit.prevent="saveRecruitmentPosition"><label>部门名称 *<input v-model="positionForm.departmentName" required /></label><label>岗位名称 *<input v-model="positionForm.positionName" required /></label><footer class="modal-footer"><button type="button" class="outline-button" @click="closePositionForm">取消</button><button type="submit" class="primary-button" :disabled="positionSaving">{{ positionSaving ? '保存中...' : editingPosition ? '保存修改' : '创建岗位' }}</button></footer></form></section></div>
 </template>
 

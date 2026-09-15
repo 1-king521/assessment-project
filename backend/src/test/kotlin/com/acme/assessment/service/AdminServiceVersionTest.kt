@@ -9,6 +9,7 @@ import com.acme.assessment.repository.AssessmentTemplateRepository
 import com.acme.assessment.repository.AssessmentTemplateVersionRepository
 import com.acme.assessment.repository.DepartmentRepository
 import com.acme.assessment.repository.JobPositionRepository
+import com.acme.assessment.repository.RecruitmentPositionRepository
 import com.acme.assessment.repository.RoleRepository
 import com.acme.assessment.repository.UserRepository
 import com.acme.assessment.web.ConflictException
@@ -32,6 +33,7 @@ class AdminServiceVersionTest {
     private val userRepository = mock<UserRepository>()
     private val roleRepository = mock<RoleRepository>()
     private val positionRepository = mock<JobPositionRepository>()
+    private val recruitmentPositionRepository = mock<RecruitmentPositionRepository>()
     private val templateRepository = mock<AssessmentTemplateRepository>()
     private val versionRepository = mock<AssessmentTemplateVersionRepository>()
     private val taskRepository = mock<AssessmentTaskRepository>()
@@ -48,6 +50,7 @@ class AdminServiceVersionTest {
             userRepository,
             roleRepository,
             positionRepository,
+            recruitmentPositionRepository,
             templateRepository,
             versionRepository,
             taskRepository,

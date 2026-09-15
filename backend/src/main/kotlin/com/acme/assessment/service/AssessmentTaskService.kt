@@ -15,7 +15,7 @@ import com.acme.assessment.entity.TemplateVersionStatus
 import com.acme.assessment.repository.AssessmentTaskRepository
 import com.acme.assessment.repository.AssessmentTemplateRepository
 import com.acme.assessment.repository.AssessmentTemplateVersionRepository
-import com.acme.assessment.repository.JobPositionRepository
+import com.acme.assessment.repository.RecruitmentPositionRepository
 import com.acme.assessment.repository.OperationLogRepository
 import com.acme.assessment.web.BusinessException
 import com.acme.assessment.web.ConflictException
@@ -31,7 +31,7 @@ import java.time.Clock
 class AssessmentTaskService(
     private val authenticationService: AuthenticationService,
     private val taskRepository: AssessmentTaskRepository,
-    private val positionRepository: JobPositionRepository,
+    private val positionRepository: RecruitmentPositionRepository,
     private val templateRepository: AssessmentTemplateRepository,
     private val templateVersionRepository: AssessmentTemplateVersionRepository,
     private val operationLogRepository: OperationLogRepository,

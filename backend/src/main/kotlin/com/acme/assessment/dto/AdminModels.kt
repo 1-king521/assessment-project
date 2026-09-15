@@ -64,19 +64,23 @@ data class DepartmentResponse(
 )
 
 data class CreatePositionRequest(
-    @field:Positive val departmentId: Long,
-    @field:NotBlank val positionCode: String,
+    @field:NotBlank val departmentName: String,
     @field:NotBlank val positionName: String,
-    val description: String? = null,
+)
+
+data class UpdatePositionRequest(
+    @field:NotBlank val departmentName: String,
+    @field:NotBlank val positionName: String,
+)
+
+data class UpdatePositionStatusRequest(
+    val status: RecordStatus,
 )
 
 data class PositionResponse(
     val id: Long,
-    val departmentId: Long,
-    val positionCode: String,
+    val departmentName: String,
     val positionName: String,
-    val description: String?,
-    val defaultTemplateId: Long?,
     val status: RecordStatus,
 )
 
@@ -86,6 +90,12 @@ data class ReviewerResponse(
     val realName: String,
     val departmentId: Long?,
     val positionId: Long?,
+    val departmentName: String?,
+    val positionName: String?,
+)
+
+data class ReviewersByDepartmentResponse(
+    val departments: Map<String, List<ReviewerResponse>>
 )
 
 data class CreateTemplateRequest(

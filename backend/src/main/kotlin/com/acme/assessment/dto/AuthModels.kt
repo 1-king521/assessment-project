@@ -23,6 +23,22 @@ data class RegisterRequest(
     @field:NotBlank @field:Size(max = 80) val realName: String,
     @field:NotBlank @field:Pattern(regexp = "^[0-9+() -]{6,30}$", message = "手机号格式不正确") val phone: String,
     @field:NotBlank @field:Pattern(regexp = "^(HR|REVIEWER)$", message = "只能申请HR或评估人员角色") val requestedRole: String,
+    @field:Size(max = 100) val departmentName: String? = null,
+    @field:Size(max = 100) val positionName: String? = null,
+)
+
+data class DingTalkProfileRequest(
+    @field:NotBlank @field:Pattern(regexp = "^[0-9+() -]{6,30}$", message = "手机号格式不正确") val phone: String,
+)
+
+data class DingTalkProfileResponse(
+    val matched: Boolean,
+    val message: String,
+    val userId: String? = null,
+    val name: String? = null,
+    val departmentId: Long? = null,
+    val departmentName: String? = null,
+    val positionName: String? = null,
 )
 
 data class RegistrationResponse(

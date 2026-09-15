@@ -19,7 +19,7 @@ import com.acme.assessment.repository.AssessmentFileRepository
 import com.acme.assessment.repository.AssessmentReviewRepository
 import com.acme.assessment.repository.AssessmentTaskRepository
 import com.acme.assessment.repository.AssessmentTemplateVersionRepository
-import com.acme.assessment.repository.JobPositionRepository
+import com.acme.assessment.repository.RecruitmentPositionRepository
 import com.acme.assessment.repository.OperationLogRepository
 import com.acme.assessment.repository.UserRepository
 import com.acme.assessment.repository.RoleRepository
@@ -42,7 +42,7 @@ class TaskManagementService(
     private val answerRepository: AssessmentAnswerRepository,
     private val fileRepository: AssessmentFileRepository,
     private val reviewRepository: AssessmentReviewRepository,
-    private val positionRepository: JobPositionRepository,
+    private val positionRepository: RecruitmentPositionRepository,
     private val versionRepository: AssessmentTemplateVersionRepository,
     private val userRepository: UserRepository,
     private val roleRepository: RoleRepository,
@@ -115,9 +115,6 @@ class TaskManagementService(
         if (reviewers.any { it.status != UserStatus.ACTIVE || roles[it.roleId]?.roleCode != "REVIEWER" }) {
             throw BusinessException("INVALID_REVIEWER", "评估人员必须是启用状态的 REVIEWER 用户")
         }
-        if (reviewers.any { it.positionId != task.positionId }) {
-            throw BusinessException("REVIEWER_POSITION_MISMATCH", "评估人员必须属于当前任务岗位")
-        }
         val now = clock.instant()
         val actor = authenticationService.currentUser()
         existing.filter { it.reviewerUserId !in reviewerIds }.forEach {
@@ -159,7 +156,7 @@ class TaskManagementService(
         val users = userRepository.findAllByIdIn(assignments.map { it.reviewerUserId }).associateBy { it.id }
         return TaskDetailResponse(
             id, task.taskNo, task.candidateName, task.candidatePhone, task.candidateEmail, task.candidateSource,
-            PositionBriefResponse(requireNotNull(position.id), position.positionCode, position.positionName),
+            PositionBriefResponse(requireNotNull(position.id), "${position.departmentName}-${position.positionName}", position.positionName),
             TemplateVersionBriefResponse(requireNotNull(version.id), version.templateId, version.versionNo, version.versionStatus.name, if (includeSubmission) version.schemaJson else "{}"),
             task.status, task.deadline, task.sentAt, task.openedAt, task.submittedAt, task.reviewStartedAt,
             task.reviewedAt, task.revokedAt, task.archivedAt,

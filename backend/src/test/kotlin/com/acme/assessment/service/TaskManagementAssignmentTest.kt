@@ -6,7 +6,7 @@ import com.acme.assessment.entity.AssessmentAssignment
 import com.acme.assessment.entity.AssessmentTask
 import com.acme.assessment.entity.AssessmentTemplateVersion
 import com.acme.assessment.entity.AssignmentStatus
-import com.acme.assessment.entity.JobPosition
+import com.acme.assessment.entity.RecruitmentPosition
 import com.acme.assessment.entity.Role
 import com.acme.assessment.entity.ReviewConclusion
 import com.acme.assessment.entity.TaskStatus
@@ -18,7 +18,7 @@ import com.acme.assessment.repository.AssessmentFileRepository
 import com.acme.assessment.repository.AssessmentReviewRepository
 import com.acme.assessment.repository.AssessmentTaskRepository
 import com.acme.assessment.repository.AssessmentTemplateVersionRepository
-import com.acme.assessment.repository.JobPositionRepository
+import com.acme.assessment.repository.RecruitmentPositionRepository
 import com.acme.assessment.repository.OperationLogRepository
 import com.acme.assessment.repository.RoleRepository
 import com.acme.assessment.repository.UserRepository
@@ -46,7 +46,7 @@ class TaskManagementAssignmentTest {
     private val answerRepository = mock<AssessmentAnswerRepository>()
     private val fileRepository = mock<AssessmentFileRepository>()
     private val reviewRepository = mock<AssessmentReviewRepository>()
-    private val positionRepository = mock<JobPositionRepository>()
+    private val positionRepository = mock<RecruitmentPositionRepository>()
     private val versionRepository = mock<AssessmentTemplateVersionRepository>()
     private val userRepository = mock<UserRepository>()
     private val roleRepository = mock<RoleRepository>()
@@ -84,7 +84,7 @@ class TaskManagementAssignmentTest {
         whenever(assignmentRepository.findAllByTaskId(10)).thenReturn(emptyList())
         whenever(userRepository.findAllByIdIn(setOf(40L))).thenReturn(listOf(User(id = 40, roleId = 50, positionId = 20, status = UserStatus.ACTIVE)))
         whenever(roleRepository.findAllById(listOf(50L))).thenReturn(listOf(Role(id = 50, roleCode = "REVIEWER")))
-        whenever(positionRepository.findById(20)).thenReturn(Optional.of(JobPosition(id = 20)))
+        whenever(positionRepository.findById(20)).thenReturn(Optional.of(RecruitmentPosition(id = 20)))
         whenever(versionRepository.findById(30)).thenReturn(Optional.of(AssessmentTemplateVersion(id = 30)))
         whenever(answerRepository.findAllByTaskId(10)).thenReturn(emptyList())
         whenever(fileRepository.findAllByTaskId(10)).thenReturn(emptyList())
@@ -127,7 +127,7 @@ class TaskManagementAssignmentTest {
         task.finalConclusionReason = "截止时间内未提交测评"
         whenever(taskRepository.searchRecords(any(), any(), any(), any(), any()))
             .thenReturn(PageImpl(listOf(task)))
-        whenever(positionRepository.findById(20)).thenReturn(Optional.of(JobPosition(id = 20, positionName = "Java开发工程师")))
+        whenever(positionRepository.findById(20)).thenReturn(Optional.of(RecruitmentPosition(id = 20, positionName = "Java开发工程师")))
         whenever(versionRepository.findById(30)).thenReturn(Optional.of(AssessmentTemplateVersion(id = 30, versionNo = 4)))
 
         val records = service.listRecords(

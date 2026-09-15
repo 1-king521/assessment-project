@@ -76,6 +76,8 @@ class AuthenticationService(
             roleId = requireNotNull(role.id),
             status = UserStatus.PENDING_APPROVAL,
             dingtalkMatchStatus = "PENDING",
+            requestedDepartmentName = request.departmentName?.trim(),
+            requestedPositionName = request.positionName?.trim(),
             createdAt = now,
             updatedAt = now,
         ))

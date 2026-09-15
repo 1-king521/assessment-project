@@ -33,7 +33,8 @@ const reviewQuestions = computed(() => {
 
 async function request(path, options = {}) {
   const headers = { ...(options.headers || {}) }
-  if (token.value) headers.Authorization = `Bearer ${token.value}`
+  const publicAuthEndpoint = ['/api/auth/login', '/api/auth/register', '/api/auth/dingtalk-profile'].includes(path)
+  if (token.value && !publicAuthEndpoint) headers.Authorization = `Bearer ${token.value}`
   if (options.body) headers['Content-Type'] = 'application/json'
   const response = await fetch(path, { ...options, headers })
   const body = await response.json().catch(() => ({}))

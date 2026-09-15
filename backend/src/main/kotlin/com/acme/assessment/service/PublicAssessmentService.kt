@@ -16,7 +16,7 @@ import com.acme.assessment.repository.AssessmentFileRepository
 import com.acme.assessment.repository.AssessmentTaskRepository
 import com.acme.assessment.repository.AssessmentTemplateRepository
 import com.acme.assessment.repository.AssessmentTemplateVersionRepository
-import com.acme.assessment.repository.JobPositionRepository
+import com.acme.assessment.repository.RecruitmentPositionRepository
 import com.acme.assessment.repository.OperationLogRepository
 import com.acme.assessment.service.SecureTokenService
 import com.acme.assessment.web.BusinessException
@@ -38,7 +38,7 @@ class PublicAssessmentService(
     private val fileRepository: AssessmentFileRepository,
     private val templateVersionRepository: AssessmentTemplateVersionRepository,
     private val templateRepository: AssessmentTemplateRepository,
-    private val positionRepository: JobPositionRepository,
+    private val positionRepository: RecruitmentPositionRepository,
     private val operationLogRepository: OperationLogRepository,
     private val tokenService: SecureTokenService,
     private val candidateAccess: CandidateAccessService,

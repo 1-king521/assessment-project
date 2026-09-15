@@ -13,6 +13,7 @@ import com.acme.assessment.entity.AssessmentAnswer
 import com.acme.assessment.entity.AssessmentFile
 import com.acme.assessment.entity.AssessmentReview
 import com.acme.assessment.entity.JobPosition
+import com.acme.assessment.entity.RecruitmentPosition
 import com.acme.assessment.entity.OperationLog
 import com.acme.assessment.entity.Role
 import com.acme.assessment.entity.User
@@ -48,6 +49,11 @@ interface DepartmentRepository : JpaRepository<Department, Long> {
 interface JobPositionRepository : JpaRepository<JobPosition, Long> {
     fun findAllByIdIn(ids: Collection<Long>): List<JobPosition>
 }
+interface RecruitmentPositionRepository : JpaRepository<RecruitmentPosition, Long> {
+    fun findAllByIdIn(ids: Collection<Long>): List<RecruitmentPosition>
+    fun existsByDepartmentNameAndPositionName(departmentName: String, positionName: String): Boolean
+    fun existsByDepartmentNameAndPositionNameAndIdNot(departmentName: String, positionName: String, id: Long): Boolean
+}
 interface AssessmentTemplateRepository : JpaRepository<AssessmentTemplate, Long> {
     fun existsByPositionId(positionId: Long): Boolean
 }
@@ -56,6 +62,7 @@ interface AssessmentTemplateVersionRepository : JpaRepository<AssessmentTemplate
 }
 
 interface AssessmentTaskRepository : JpaRepository<AssessmentTask, Long> {
+    fun existsByPositionId(positionId: Long): Boolean
     fun existsByTaskNo(taskNo: String): Boolean
     fun existsByTokenHash(tokenHash: String): Boolean
     fun findByTokenHash(tokenHash: String): AssessmentTask?

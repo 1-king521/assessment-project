@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.PutMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.ResponseStatus
@@ -53,12 +54,31 @@ class AdminController(private val service: AdminService) {
 
     @PostMapping("/positions")
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("hasAnyRole('HR_MANAGER', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('HR', 'HR_MANAGER', 'ADMIN')")
     fun createPosition(@Valid @RequestBody request: CreatePositionRequest) = service.createPosition(request)
+
+    @PutMapping("/positions/{id}")
+    @PreAuthorize("hasAnyRole('HR', 'HR_MANAGER', 'ADMIN')")
+    fun updatePosition(@PathVariable id: Long, @Valid @RequestBody request: UpdatePositionRequest) =
+        service.updatePosition(id, request)
+
+    @PutMapping("/positions/{id}/status")
+    @PreAuthorize("hasAnyRole('HR', 'HR_MANAGER', 'ADMIN')")
+    fun updatePositionStatus(@PathVariable id: Long, @Valid @RequestBody request: UpdatePositionStatusRequest) =
+        service.updatePositionStatus(id, request)
+
+    @DeleteMapping("/positions/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasAnyRole('HR', 'HR_MANAGER', 'ADMIN')")
+    fun deletePosition(@PathVariable id: Long) = service.deletePosition(id)
 
     @GetMapping("/reviewers")
     @PreAuthorize("hasAnyRole('HR', 'HR_MANAGER', 'ADMIN')")
     fun listReviewers(@RequestParam(required = false) positionId: Long?) = service.listReviewers(positionId)
+
+    @GetMapping("/reviewers/grouped")
+    @PreAuthorize("hasAnyRole('HR', 'HR_MANAGER', 'ADMIN')")
+    fun listReviewersGroupedByDepartment() = service.listReviewersGroupedByDepartment()
 
     @PostMapping("/assessment-templates")
     @ResponseStatus(HttpStatus.CREATED)

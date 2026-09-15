@@ -19,7 +19,7 @@ import com.acme.assessment.repository.AssessmentFileRepository
 import com.acme.assessment.repository.AssessmentReviewRepository
 import com.acme.assessment.repository.AssessmentTaskRepository
 import com.acme.assessment.repository.AssessmentTemplateVersionRepository
-import com.acme.assessment.repository.JobPositionRepository
+import com.acme.assessment.repository.RecruitmentPositionRepository
 import com.acme.assessment.repository.OperationLogRepository
 import com.acme.assessment.service.FileStorageService
 import com.acme.assessment.web.BusinessException
@@ -28,6 +28,7 @@ import com.acme.assessment.web.NotFoundException
 import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import org.springframework.context.ApplicationEventPublisher
 import java.time.Clock
 
 @Service
@@ -39,10 +40,11 @@ class ReviewService(
     private val reviewRepository: AssessmentReviewRepository,
     private val answerRepository: AssessmentAnswerRepository,
     private val fileRepository: AssessmentFileRepository,
-    private val positionRepository: JobPositionRepository,
+    private val positionRepository: RecruitmentPositionRepository,
     private val operationLogRepository: OperationLogRepository,
     private val fileStorageService: FileStorageService,
     private val clock: Clock,
+    private val eventPublisher: ApplicationEventPublisher = ApplicationEventPublisher { },
 ) {
     @Transactional(readOnly = true)
     fun listMine(): List<ReviewAssignmentResponse> {
@@ -167,6 +169,7 @@ class ReviewService(
         if (allCompleted) {
             task.status = TaskStatus.REVIEWED
             task.reviewedAt = now
+            eventPublisher.publishEvent(AllReviewsCompletedEvent(requireNotNull(task.id), task.hrUserId, activeAssignments.size))
         } else {
             task.status = TaskStatus.REVIEWING
         }

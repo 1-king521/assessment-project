@@ -21,6 +21,10 @@ const conclusion = ref('')
 const reason = ref('')
 const submitting = ref(false)
 const fileUrls = ref({})
+const deepLinkAssignmentId = (() => {
+  const value = new URLSearchParams(window.location.search).get('assignmentId')
+  return /^\d+$/.test(value || '') ? Number(value) : null
+})()
 const loggedIn = computed(() => Boolean(token.value && user.value?.role === 'REVIEWER'))
 const pendingCount = computed(() => assignments.value.filter(item => ['PENDING', 'IN_PROGRESS'].includes(item.status)).length)
 const reviewQuestions = computed(() => {
@@ -33,8 +37,7 @@ const reviewQuestions = computed(() => {
 
 async function request(path, options = {}) {
   const headers = { ...(options.headers || {}) }
-  const publicAuthEndpoint = ['/api/auth/login', '/api/auth/register', '/api/auth/dingtalk-profile'].includes(path)
-  if (token.value && !publicAuthEndpoint) headers.Authorization = `Bearer ${token.value}`
+  if (token.value) headers.Authorization = `Bearer ${token.value}`
   if (options.body) headers['Content-Type'] = 'application/json'
   const response = await fetch(path, { ...options, headers })
   const body = await response.json().catch(() => ({}))
@@ -54,6 +57,7 @@ async function login() {
     localStorage.setItem('assessment_token', result.accessToken)
     localStorage.setItem('assessment_user', JSON.stringify(result.user))
     await loadAssignments()
+    await openDeepLinkedAssignment()
   } catch (error) { loginError.value = error.message } finally { loading.value = false }
 }
 
@@ -122,10 +126,16 @@ async function restoreSession() {
     user.value = currentUser
     localStorage.setItem('assessment_user', JSON.stringify(currentUser))
     await loadAssignments()
+    await openDeepLinkedAssignment()
   } catch (error) {
     logout()
     loginError.value = error.message || '登录状态已失效，请重新登录'
   }
+}
+
+async function openDeepLinkedAssignment() {
+  if (deepLinkAssignmentId == null) return
+  await openAssignment({ assignmentId: deepLinkAssignmentId })
 }
 
 async function loadAssignments() {

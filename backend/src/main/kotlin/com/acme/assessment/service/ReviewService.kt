@@ -64,6 +64,7 @@ class ReviewService(
                 candidateName = task.candidateName,
                 positionName = position?.positionName ?: "未知岗位",
                 status = assignment.status,
+                reviewDueAt = assignment.reviewDueAt,
                 submittedAt = task.submittedAt,
                 completedAt = assignment.completedAt,
                 conclusion = reviews[requireNotNull(assignment.id)]?.conclusion,
@@ -88,6 +89,7 @@ class ReviewService(
             positionName = position.positionName,
             taskStatus = task.status.name,
             assignmentStatus = assignment.status,
+            reviewDueAt = assignment.reviewDueAt,
             schemaJson = templateVersion.schemaJson,
             answers = answerRepository.findAllByTaskId(requireNotNull(task.id)).map {
                 ReviewAnswerResponse(it.questionId, it.answerJson, it.submittedAt)
@@ -139,6 +141,7 @@ class ReviewService(
             throw BusinessException("INVALID_REVIEW_CONCLUSION", "放弃测试只能由系统在候选人超时未提交时生成")
         }
         val assignment = loadMine(assignmentId)
+        val task = taskRepository.findByIdForUpdate(assignment.taskId) ?: throw NotFoundException("测评任务")
         if (reviewRepository.findByAssignmentId(assignmentId) != null) {
             throw ConflictException("REVIEW_ALREADY_SUBMITTED", "评估结果已经提交")
         }
@@ -148,7 +151,6 @@ class ReviewService(
         if (request.conclusion == ReviewConclusion.REJECTED && request.reason?.trim().isNullOrEmpty()) {
             throw BusinessException("REJECTION_REASON_REQUIRED", "不通过时必须填写原因")
         }
-        val task = taskRepository.findById(assignment.taskId).orElseThrow { NotFoundException("测评任务") }
         val now = clock.instant()
         reviewRepository.save(AssessmentReview(
             assignmentId = assignmentId,
@@ -166,11 +168,11 @@ class ReviewService(
         val activeAssignments = assignmentRepository.findAllByTaskId(requireNotNull(task.id))
             .filter { it.status != AssignmentStatus.CANCELLED }
         val allCompleted = activeAssignments.isNotEmpty() && activeAssignments.all { it.status == AssignmentStatus.COMPLETED }
-        if (allCompleted) {
+        if (allCompleted && task.status != TaskStatus.REVIEWED) {
             task.status = TaskStatus.REVIEWED
             task.reviewedAt = now
             eventPublisher.publishEvent(AllReviewsCompletedEvent(requireNotNull(task.id), task.hrUserId, activeAssignments.size))
-        } else {
+        } else if (!allCompleted) {
             task.status = TaskStatus.REVIEWING
         }
         task.updatedAt = now

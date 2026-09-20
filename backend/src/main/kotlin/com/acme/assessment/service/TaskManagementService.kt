@@ -33,6 +33,7 @@ import org.springframework.stereotype.Service
 import org.springframework.context.ApplicationEventPublisher
 import org.springframework.transaction.annotation.Transactional
 import java.time.Clock
+import java.time.Duration
 
 @Service
 class TaskManagementService(
@@ -116,19 +117,25 @@ class TaskManagementService(
             throw BusinessException("INVALID_REVIEWER", "评估人员必须是启用状态的 REVIEWER 用户")
         }
         val now = clock.instant()
+        val reviewDueAt = now.plus(Duration.ofHours(request.reviewTimeoutHours))
         val actor = authenticationService.currentUser()
         existing.filter { it.reviewerUserId !in reviewerIds }.forEach {
             assignmentRepository.delete(it)
             operationLogRepository.save(OperationLog(taskId = taskId, operatorId = actor.id, action = "REVIEWER_REMOVED", detailJson = "{\"reviewerUserId\":${it.reviewerUserId}}", createdAt = now))
         }
         val existingIds = existing.map { it.reviewerUserId }.toSet()
+        existing.filter { it.reviewerUserId in reviewerIds }.forEach {
+            it.reviewDueAt = reviewDueAt
+            it.overdueReminderSentAt = null
+            it.updatedAt = now
+        }
         reviewerIds.filter { it !in existingIds }.forEach { reviewerId ->
-            assignmentRepository.save(AssessmentAssignment(taskId = taskId, reviewerUserId = reviewerId, status = AssignmentStatus.PENDING, assignedBy = actor.id, assignedAt = now, createdAt = now, updatedAt = now))
+            assignmentRepository.save(AssessmentAssignment(taskId = taskId, reviewerUserId = reviewerId, status = AssignmentStatus.PENDING, assignedBy = actor.id, assignedAt = now, reviewDueAt = reviewDueAt, createdAt = now, updatedAt = now))
             operationLogRepository.save(OperationLog(taskId = taskId, operatorId = actor.id, action = "REVIEWER_ADDED", detailJson = "{\"reviewerUserId\":$reviewerId}", createdAt = now))
         }
         assignmentRepository.flush()
-        operationLogRepository.save(OperationLog(taskId = taskId, operatorId = actor.id, action = "REVIEWERS_ASSIGNED", detailJson = objectMapper.writeValueAsString(mapOf("reviewerUserIds" to reviewerIds)), createdAt = now))
-        eventPublisher.publishEvent(ReviewersAssignedEvent(taskId, reviewerIds.filter { it !in existingIds }.toSet()))
+        operationLogRepository.save(OperationLog(taskId = taskId, operatorId = actor.id, action = "REVIEWERS_ASSIGNED", detailJson = objectMapper.writeValueAsString(mapOf("reviewerUserIds" to reviewerIds, "reviewDueAt" to reviewDueAt.toString())), createdAt = now))
+        eventPublisher.publishEvent(ReviewersAssignedEvent(taskId, reviewerIds.filter { it !in existingIds }.toSet(), reviewDueAt))
         return buildDetail(task, true)
     }
 
@@ -172,7 +179,8 @@ class TaskManagementService(
                 val review = reviewRepository.findByAssignmentId(requireNotNull(assignment.id))
                 TaskAssignmentResponse(
                     requireNotNull(assignment.id), assignment.reviewerUserId, users[assignment.reviewerUserId]?.realName ?: "未知用户",
-                    assignment.status, assignment.assignedAt, assignment.startedAt, assignment.completedAt,
+                    assignment.status, assignment.assignedAt, assignment.reviewDueAt, assignment.overdueReminderSentAt,
+                    assignment.startedAt, assignment.completedAt,
                     review?.conclusion, review?.reason, review?.score, review?.submittedAt,
                 )
             } else emptyList(),
@@ -225,7 +233,22 @@ class TaskManagementService(
         val position = positionRepository.findById(task.positionId).orElse(null)
         val hr = userRepository.findById(task.hrUserId).orElse(null)
         val assignments = assignmentRepository.findAllByTaskId(id)
-        return TaskSummaryResponse(id, task.taskNo, task.candidateName, task.candidatePhone, task.candidateEmail, position?.positionName ?: "未知岗位", hr?.realName ?: "未知用户", task.status, task.deadline, task.submittedAt, task.reviewedAt, assignments.size, assignments.count { it.status == AssignmentStatus.COMPLETED })
+        return TaskSummaryResponse(
+            id = id,
+            taskNo = task.taskNo,
+            candidateName = task.candidateName,
+            candidatePhone = task.candidatePhone,
+            candidateEmail = task.candidateEmail,
+            positionName = position?.positionName ?: "未知岗位",
+            hrUserName = hr?.realName ?: "未知用户",
+            status = task.status,
+            deadline = task.deadline,
+            sentAt = task.sentAt,
+            submittedAt = task.submittedAt,
+            reviewedAt = task.reviewedAt,
+            assignmentCount = assignments.size,
+            completedAssignmentCount = assignments.count { it.status == AssignmentStatus.COMPLETED },
+        )
     }
 
     private fun summarize(tasks: List<AssessmentTask>): List<TaskSummaryResponse> {
@@ -246,6 +269,7 @@ class TaskManagementService(
                 hrUserName = users[task.hrUserId]?.realName ?: "未知用户",
                 status = task.status,
                 deadline = task.deadline,
+                sentAt = task.sentAt,
                 submittedAt = task.submittedAt,
                 reviewedAt = task.reviewedAt,
                 assignmentCount = assignments.size,

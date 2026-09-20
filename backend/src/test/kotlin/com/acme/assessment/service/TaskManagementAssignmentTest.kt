@@ -33,6 +33,7 @@ import org.springframework.data.domain.PageImpl
 import org.mockito.kotlin.any
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.verify
+import org.mockito.kotlin.argumentCaptor
 import org.mockito.kotlin.whenever
 import java.time.Clock
 import java.time.Instant
@@ -92,7 +93,9 @@ class TaskManagementAssignmentTest {
 
         service.assignReviewers(10, AssignReviewersRequest(setOf(40)))
 
-        verify(assignmentRepository).save(any<AssessmentAssignment>())
+        val assignmentCaptor = argumentCaptor<AssessmentAssignment>()
+        verify(assignmentRepository).save(assignmentCaptor.capture())
+        assertThat(assignmentCaptor.firstValue.reviewDueAt).isEqualTo(now.plusSeconds(24 * 60 * 60))
         verify(assignmentRepository).flush()
     }
 

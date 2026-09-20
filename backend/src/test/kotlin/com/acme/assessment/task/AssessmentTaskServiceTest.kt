@@ -151,6 +151,7 @@ class AssessmentTaskServiceTest {
             status = TaskStatus.SENT,
             tokenHash = "old-hash",
             deadline = now.plusSeconds(3600),
+            sentAt = now.minusSeconds(600),
         )
         whenever(taskRepository.findById(500)).thenReturn(Optional.of(task))
         whenever(tokenService.generate()).thenReturn("new-raw-token")
@@ -162,6 +163,7 @@ class AssessmentTaskServiceTest {
 
         assertThat(response.assessmentUrl).isEqualTo("https://example.test/assessment/new-raw-token")
         assertThat(task.tokenHash).isEqualTo("new-hash")
+        assertThat(task.sentAt).isEqualTo(now.minusSeconds(600))
         verify(taskRepository).save(task)
         verify(operationLogRepository).save(any())
     }

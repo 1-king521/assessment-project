@@ -19,6 +19,7 @@ import org.springframework.test.web.client.match.MockRestRequestMatchers.request
 import org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess
 import org.springframework.http.HttpMethod
 import org.springframework.web.client.RestClient
+import org.hamcrest.Matchers.containsString
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
@@ -33,6 +34,7 @@ class DingTalkUserServiceTest {
         jwt = JwtProperties("issuer", "secret-secret-secret-secret-1234", Duration.ofHours(8)),
         publicBaseUrl = "http://localhost/assessment",
         bootstrap = BootstrapProperties("admin", "ChangeMe123!"),
+        webBaseUrl = "https://assessment.example.com/",
         dingtalk = DingTalkProperties(
             enabled = true,
             clientId = "cid",
@@ -52,6 +54,26 @@ class DingTalkUserServiceTest {
         id = 7, username = "hr", realName = "招聘专员",
         passwordHash = "x", roleId = 1, phone = "13800001111",
     )
+
+    @Test
+    fun `sends clickable markdown action with configured web base url`() {
+        val (service, server) = newService()
+        server.expect(requestTo("https://api.dingtalk.com/v1.0/oauth2/accessToken"))
+            .andRespond(withSuccess("""{"accessToken":"tok"}""", MediaType.APPLICATION_JSON))
+        server.expect(requestTo("https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend"))
+            .andExpect(method(HttpMethod.POST))
+            .andExpect(content().string(containsString("\"msgKey\":\"sampleMarkdown\"")))
+            .andExpect(content().string(containsString("https://assessment.example.com/review?assignmentId=31")))
+            .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON))
+
+        val target = user().apply {
+            dingtalkUserId = "zhangsan"
+            dingtalkMatchedMobile = "13800001111"
+        }
+        service.sendText(target, "评估提醒", "请尽快处理", "/review?assignmentId=31", "查看评估任务")
+
+        server.verify()
+    }
 
     @Test
     fun `resolves userid from department user list`() {

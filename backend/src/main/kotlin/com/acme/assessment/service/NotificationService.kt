@@ -39,8 +39,29 @@ class NotificationEventListener(
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     fun onReviewersAssigned(event: ReviewersAssignedEvent) {
-        event.reviewerUserIds.forEach { notifyUser(event.taskId, it, "REVIEWER_ASSIGNED") }
+        val assignmentIds = assignmentRepository.findAllByTaskId(event.taskId)
+            .filter { it.reviewerUserId in event.reviewerUserIds }
+            .associate { it.reviewerUserId to it.id }
+        event.reviewerUserIds.forEach {
+            notifyUser(
+                event.taskId,
+                it,
+                "REVIEWER_ASSIGNED",
+                reviewDueAt = event.reviewDueAt,
+                assignmentId = assignmentIds[it],
+            )
+        }
     }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    fun onReviewOverdue(event: ReviewOverdueEvent) {
+        notifyUser(event.taskId, event.reviewerUserId, "REVIEW_OVERDUE", reviewDueAt = event.reviewDueAt, assignmentId = event.assignmentId)
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    fun sendReviewOverdue(event: ReviewOverdueEvent): Boolean =
+        notifyUser(event.taskId, event.reviewerUserId, "REVIEW_OVERDUE", reviewDueAt = event.reviewDueAt, assignmentId = event.assignmentId)
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -48,13 +69,21 @@ class NotificationEventListener(
         notifyUser(event.taskId, event.hrUserId, "ALL_REVIEWS_COMPLETED", event.reviewerCount)
     }
 
-    private fun notifyUser(taskId: Long, receiverUserId: Long, type: String, reviewerCount: Int? = null) {
-        val task = taskRepository.findById(taskId).orElse(null) ?: return
-        val receiver = userRepository.findById(receiverUserId).orElse(null) ?: return
+    private fun notifyUser(
+        taskId: Long,
+        receiverUserId: Long,
+        type: String,
+        reviewerCount: Int? = null,
+        reviewDueAt: Instant? = null,
+        assignmentId: Long? = null,
+    ): Boolean {
+        val task = taskRepository.findById(taskId).orElse(null) ?: return false
+        val receiver = userRepository.findById(receiverUserId).orElse(null) ?: return false
         val positionName = positionRepository.findById(task.positionId).orElse(null)?.positionName ?: "未知岗位"
         val title = when (type) {
             "CANDIDATE_SUBMITTED" -> "有新的候选人提交"
             "ALL_REVIEWS_COMPLETED" -> "评估已全部完成"
+            "REVIEW_OVERDUE" -> "评估任务已超时"
             else -> "你被分配了评估任务"
         }
         val content = when (type) {
@@ -64,8 +93,12 @@ class NotificationEventListener(
             "ALL_REVIEWS_COMPLETED" -> {
                 "【评估完成提醒】\n候选人：${task.candidateName}\n应聘岗位：$positionName\n任务编号：${task.taskNo}\n评估人数：${reviewerCount ?: 0}\n完成时间：${formatShanghai(task.reviewedAt ?: clock.instant())}"
             }
+            "REVIEW_OVERDUE" -> {
+                "【评估任务超时提醒】\n候选人：${task.candidateName}\n应聘岗位：$positionName\n任务编号：${task.taskNo}\n评估截止时间：${reviewDueAt?.let(::formatShanghai) ?: "--"}\n该任务尚未完成评估，请尽快处理。"
+            }
             else -> {
-                "【评估任务提醒】\n候选人：${task.candidateName}\n应聘岗位：$positionName\n任务编号：${task.taskNo}\n分配时间：${formatShanghai(task.updatedAt)}"
+                "【评估任务提醒】\n候选人：${task.candidateName}\n应聘岗位：$positionName\n任务编号：${task.taskNo}\n分配时间：${formatShanghai(task.updatedAt)}" +
+                    (reviewDueAt?.let { "\n评估截止时间：${formatShanghai(it)}" } ?: "")
             }
         }
         val record = notificationRepository.save(Notification(
@@ -73,7 +106,14 @@ class NotificationEventListener(
             title = title, content = content, createdAt = clock.instant(),
         ))
         try {
-            dingTalkUserService.sendText(receiver, title, content)
+            val reviewerNotification = type == "REVIEWER_ASSIGNED" || type == "REVIEW_OVERDUE"
+            val actionPath = if (reviewerNotification) {
+                assignmentId?.let { "/review?assignmentId=$it" } ?: "/review"
+            } else {
+                "/?taskId=$taskId"
+            }
+            val actionLabel = if (reviewerNotification) "查看评估任务" else "查看任务详情"
+            dingTalkUserService.sendText(receiver, title, content, actionPath, actionLabel)
             record.sendStatus = "SENT"
             record.sentAt = clock.instant()
         } catch (ex: Exception) {
@@ -82,6 +122,7 @@ class NotificationEventListener(
             record.sendError = ex.message?.take(500) ?: "钉钉通知发送失败"
         }
         notificationRepository.save(record)
+        return record.sendStatus == "SENT"
     }
 
     private fun formatShanghai(value: Instant): String = shanghaiFormatter.format(value)

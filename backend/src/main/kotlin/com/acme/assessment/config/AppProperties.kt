@@ -13,6 +13,7 @@ data class AppProperties(
     val jwt: JwtProperties,
     val publicBaseUrl: String,
     val bootstrap: BootstrapProperties,
+    val webBaseUrl: String = "http://localhost:5173",
     val candidate: CandidateProperties = CandidateProperties(),
     val material: MaterialProperties = MaterialProperties(),
     val dingtalk: DingTalkProperties = DingTalkProperties(),
@@ -32,7 +33,6 @@ data class BootstrapProperties(
 data class CandidateProperties(
     val storagePath: String = "./data/uploads",
     val maxFileBytes: Long = 104857600,
-    val allowedExtensions: Set<String> = setOf("jpg", "jpeg", "png", "gif", "pdf", "psd", "blend", "fbx", "obj", "zip", "rar"),
 )
 
 data class MaterialProperties(

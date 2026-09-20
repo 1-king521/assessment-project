@@ -37,13 +37,11 @@ class FileStorageService(
     fun createRecord(taskId: Long, request: PresignFileRequest): AssessmentFile {
         val originalName = Path.of(request.fileName).fileName.toString()
         val extension = originalName.substringAfterLast('.', "").lowercase()
-        if (extension.isBlank() || extension !in allowedExtensions()) {
-            throw BusinessException("FILE_EXTENSION_NOT_ALLOWED", "文件格式不支持")
-        }
         if (request.sizeBytes > properties.candidate.maxFileBytes) {
             throw BusinessException("FILE_TOO_LARGE", "文件不能超过 ${properties.candidate.maxFileBytes} 字节")
         }
-        val objectKey = "$taskId/${UUID.randomUUID()}.$extension"
+        val storedName = UUID.randomUUID().toString() + extension.takeIf { it.isNotBlank() }?.let { ".$it" }.orEmpty()
+        val objectKey = "$taskId/$storedName"
         return fileRepository.save(AssessmentFile(
             taskId = taskId,
             questionId = request.questionId.trim(),
@@ -133,8 +131,6 @@ class FileStorageService(
 
     fun hasIncompleteFiles(taskId: Long): Boolean = fileRepository.findAllByTaskId(taskId)
         .any { it.uploadStatus == FileUploadStatus.UPLOADING }
-
-    private fun allowedExtensions() = properties.candidate.allowedExtensions.map { it.lowercase().removePrefix(".") }.toSet()
 
     private fun safePath(objectKey: String): Path {
         val root = Path.of(properties.candidate.storagePath).toAbsolutePath().normalize()

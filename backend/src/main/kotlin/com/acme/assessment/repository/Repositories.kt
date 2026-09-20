@@ -148,6 +148,10 @@ interface AssessmentAssignmentRepository : JpaRepository<AssessmentAssignment, L
     fun findAllByTaskId(taskId: Long): List<AssessmentAssignment>
     fun findAllByTaskIdIn(taskIds: Collection<Long>): List<AssessmentAssignment>
     fun findAllByReviewerUserId(reviewerUserId: Long): List<AssessmentAssignment>
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select assignment from AssessmentAssignment assignment where assignment.reviewDueAt <= :now and assignment.overdueReminderSentAt is null and assignment.status in :statuses")
+    fun findOverdueForReminder(now: Instant, statuses: Collection<AssignmentStatus>): List<AssessmentAssignment>
 }
 interface AssessmentAnswerRepository : JpaRepository<AssessmentAnswer, Long> {
     fun findAllByTaskId(taskId: Long): List<AssessmentAnswer>

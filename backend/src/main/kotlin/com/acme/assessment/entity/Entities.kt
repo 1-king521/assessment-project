@@ -300,6 +300,10 @@ class AssessmentAssignment(
     var assignedBy: Long = 0,
     @Column(name = "assigned_at", nullable = false)
     var assignedAt: Instant = Instant.now(),
+    @Column(name = "review_due_at")
+    var reviewDueAt: Instant? = null,
+    @Column(name = "overdue_reminder_sent_at")
+    var overdueReminderSentAt: Instant? = null,
     @Column(name = "started_at")
     var startedAt: Instant? = null,
     @Column(name = "completed_at")

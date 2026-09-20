@@ -112,7 +112,13 @@ class DingTalkUserService(
         }
     }
 
-    fun sendText(user: User, title: String, content: String) {
+    fun sendText(
+        user: User,
+        title: String,
+        content: String,
+        actionPath: String? = null,
+        actionLabel: String = "立即查看",
+    ) {
         val userId = user.dingtalkUserId
             // 两边都要走同一套归一化，否则库里存的 13800001111 永远等不上页面填的
             // “+86 138 0000 1111”，每条通知都会重新查一次钉钉。
@@ -127,16 +133,25 @@ class DingTalkUserService(
             throw RestClientException("用户未匹配到钉钉 userid")
         }
         val accessToken = accessToken()
+        val message = if (actionPath == null) {
+            mapOf(
+                "msgKey" to "sampleText",
+                "msgParam" to "{\"content\":\"${escapeJson("$title\n$content")}\"}",
+            )
+        } else {
+            val actionUrl = "${properties.webBaseUrl.trimEnd('/')}/${actionPath.trimStart('/')}"
+            val markdown = "$content\n\n[$actionLabel]($actionUrl)"
+            mapOf(
+                "msgKey" to "sampleMarkdown",
+                "msgParam" to "{\"title\":\"${escapeJson(title)}\",\"text\":\"${escapeJson(markdown)}\"}",
+            )
+        }
         client.post().uri("/v1.0/robot/oToMessages/batchSend")
             .header("x-acs-dingtalk-access-token", accessToken)
             .body(mapOf(
                 "robotCode" to properties.dingtalk.robotCode,
                 "userIds" to listOf(userId),
-                "msgKey" to "sampleText",
-                // 这里要用真正的换行符：escapeJson 会把它转成 JSON 的 \n。
-                // 若写成 "\\n"（反斜杠+n），escapeJson 会再转义反斜杠，收到的消息里是字面量 \n。
-                "msgParam" to "{\"content\":\"${escapeJson("$title\n$content")}\"}",
-            ))
+            ) + message)
             .retrieve().toBodilessEntity()
     }
 

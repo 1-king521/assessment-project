@@ -1,6 +1,7 @@
 package com.acme.assessment.service
 
 import com.acme.assessment.entity.AssessmentTask
+import com.acme.assessment.entity.AssessmentAssignment
 import com.acme.assessment.entity.JobPosition
 import com.acme.assessment.entity.RecruitmentPosition
 import com.acme.assessment.entity.Notification
@@ -15,6 +16,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.any
 import org.mockito.kotlin.argumentCaptor
+import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.times
 import org.mockito.kotlin.verify
@@ -57,11 +59,15 @@ class NotificationEventListenerTest {
             "【候选人提交提醒】\n候选人：wang14\n应聘岗位：Java开发工程师\n" +
                 "任务编号：TEST20260902081847\n提交时间：2026-09-02 16:18:47"
         )
+        verify(dingTalkUserService).sendText(any(), any(), any(), eq("/?taskId=1"), eq("查看任务详情"))
     }
 
     @Test
     fun `uses the same time format for reviewer assignment`() {
         stubNotificationData(submittedAt = null, updatedAt = now)
+        whenever(assignmentRepository.findAllByTaskId(1)).thenReturn(
+            listOf(AssessmentAssignment(id = 31, taskId = 1, reviewerUserId = 3))
+        )
 
         listener.onReviewersAssigned(ReviewersAssignedEvent(taskId = 1, reviewerUserIds = setOf(3)))
 
@@ -69,6 +75,7 @@ class NotificationEventListenerTest {
             "【评估任务提醒】\n候选人：wang14\n应聘岗位：Java开发工程师\n" +
                 "任务编号：TEST20260902081847\n分配时间：2026-09-02 16:18:47"
         )
+        verify(dingTalkUserService).sendText(any(), any(), any(), eq("/review?assignmentId=31"), eq("查看评估任务"))
     }
 
     @Test

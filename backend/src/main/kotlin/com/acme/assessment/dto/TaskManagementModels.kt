@@ -9,6 +9,8 @@ import com.acme.assessment.entity.AssignmentStatus
 import com.acme.assessment.entity.ReviewConclusion
 import com.acme.assessment.entity.TaskStatus
 import jakarta.validation.constraints.Future
+import jakarta.validation.constraints.Max
+import jakarta.validation.constraints.Min
 import jakarta.validation.constraints.NotEmpty
 import jakarta.validation.constraints.Positive
 import java.math.BigDecimal
@@ -56,6 +58,7 @@ data class TaskSummaryResponse(
     val hrUserName: String,
     val status: TaskStatus,
     val deadline: Instant,
+    val sentAt: Instant?,
     val submittedAt: Instant?,
     val reviewedAt: Instant?,
     val assignmentCount: Int,
@@ -134,6 +137,8 @@ data class TaskAssignmentResponse(
     val reviewerUserName: String,
     val status: AssignmentStatus,
     val assignedAt: Instant,
+    val reviewDueAt: Instant?,
+    val overdueReminderSentAt: Instant?,
     val startedAt: Instant?,
     val completedAt: Instant?,
     val conclusion: ReviewConclusion?,
@@ -161,6 +166,9 @@ data class ExtendTaskRequest(
 data class AssignReviewersRequest(
     @field:NotEmpty(message = "至少选择一名评估人员")
     val reviewerUserIds: Set<@Positive(message = "评估人员 ID 必须为正数") Long>,
+    @field:Min(value = 1, message = "评估时限不能少于1小时")
+    @field:Max(value = 720, message = "评估时限不能超过30天")
+    val reviewTimeoutHours: Long = 24,
 )
 
 data class TaskActionResponse(

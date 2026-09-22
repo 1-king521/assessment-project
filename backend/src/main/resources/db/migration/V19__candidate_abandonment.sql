@@ -1,0 +1,2 @@
+-- Candidate abandonment uses the existing final conclusion, reason and archive fields.
+-- Review conclusions are stored as strings without a database check constraint.

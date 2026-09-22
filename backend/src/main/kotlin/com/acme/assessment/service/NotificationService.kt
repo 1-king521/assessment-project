@@ -38,6 +38,12 @@ class NotificationEventListener(
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     @Transactional(propagation = Propagation.REQUIRES_NEW)
+    fun onCandidateAbandoned(event: CandidateAbandonedEvent) {
+        notifyUser(event.taskId, event.hrUserId, "CANDIDATE_ABANDONED")
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     fun onReviewersAssigned(event: ReviewersAssignedEvent) {
         val assignmentIds = assignmentRepository.findAllByTaskId(event.taskId)
             .filter { it.reviewerUserId in event.reviewerUserIds }
@@ -82,6 +88,7 @@ class NotificationEventListener(
         val positionName = positionRepository.findById(task.positionId).orElse(null)?.positionName ?: "未知岗位"
         val title = when (type) {
             "CANDIDATE_SUBMITTED" -> "有新的候选人提交"
+            "CANDIDATE_ABANDONED" -> "候选人主动放弃测评"
             "ALL_REVIEWS_COMPLETED" -> "评估已全部完成"
             "REVIEW_OVERDUE" -> "评估任务已超时"
             else -> "你被分配了评估任务"
@@ -89,6 +96,10 @@ class NotificationEventListener(
         val content = when (type) {
             "CANDIDATE_SUBMITTED" -> {
             "【候选人提交提醒】\n候选人：${task.candidateName}\n应聘岗位：$positionName\n任务编号：${task.taskNo}\n提交时间：${task.submittedAt?.let(::formatShanghai) ?: "--"}"
+            }
+            "CANDIDATE_ABANDONED" -> {
+                "【候选人放弃提醒】\n候选人：${task.candidateName}\n应聘岗位：$positionName\n任务编号：${task.taskNo}\n" +
+                    "放弃时间：${task.finalConclusionAt?.let(::formatShanghai) ?: "--"}\n放弃原因：${task.finalConclusionReason ?: "--"}"
             }
             "ALL_REVIEWS_COMPLETED" -> {
                 "【评估完成提醒】\n候选人：${task.candidateName}\n应聘岗位：$positionName\n任务编号：${task.taskNo}\n评估人数：${reviewerCount ?: 0}\n完成时间：${formatShanghai(task.reviewedAt ?: clock.instant())}"

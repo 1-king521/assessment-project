@@ -1,6 +1,7 @@
 package com.acme.assessment.service
 
 import com.acme.assessment.entity.AssignmentStatus
+import com.acme.assessment.entity.AbandonmentSource
 import com.acme.assessment.entity.OperationLog
 import com.acme.assessment.entity.ReviewConclusion
 import com.acme.assessment.entity.TaskStatus
@@ -81,6 +82,7 @@ class TaskExpirationProcessor(
         task.finalConclusion = ReviewConclusion.ABANDONED
         task.finalConclusionAt = now
         task.finalConclusionReason = ABANDONED_REASON
+        task.abandonmentSource = AbandonmentSource.TIMEOUT
         task.updatedAt = now
 
         operationLogRepository.save(

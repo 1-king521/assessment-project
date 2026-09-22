@@ -3,6 +3,7 @@ package com.acme.assessment.service
 import com.acme.assessment.entity.AssessmentAssignment
 import com.acme.assessment.entity.AssessmentTask
 import com.acme.assessment.entity.AssignmentStatus
+import com.acme.assessment.entity.AbandonmentSource
 import com.acme.assessment.entity.OperationLog
 import com.acme.assessment.entity.ReviewConclusion
 import com.acme.assessment.entity.TaskStatus
@@ -62,6 +63,7 @@ class TaskExpirationProcessorTest {
         assertThat(task.finalConclusion).isEqualTo(ReviewConclusion.ABANDONED)
         assertThat(task.finalConclusionAt).isEqualTo(now)
         assertThat(task.finalConclusionReason).isEqualTo("截止时间内未提交测评")
+        assertThat(task.abandonmentSource).isEqualTo(AbandonmentSource.TIMEOUT)
         assertThat(assignment.status).isEqualTo(AssignmentStatus.CANCELLED)
         assertThat(assignment.cancelledAt).isEqualTo(now)
 

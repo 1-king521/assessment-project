@@ -51,7 +51,9 @@ class PublicAssessmentService(
         //校验token，看是否能找到测评任务
         val task = loadAccessibleTask(rawToken)
         val now = clock.instant()
-        if (task.openedAt == null) {
+        if (task.status == TaskStatus.ARCHIVED) {
+            // Candidate-abandoned links remain readable so the result survives a refresh.
+        } else if (task.openedAt == null) {
             val previousStatus = task.status
             task.openedAt = now
             task.status = TaskStatus.OPENED
@@ -68,6 +70,9 @@ class PublicAssessmentService(
             positionName = position.positionName,
             deadline = task.deadline,
             status = task.status.name,
+            abandonmentSource = task.abandonmentSource,
+            abandonmentReason = task.finalConclusionReason,
+            abandonedAt = task.finalConclusionAt,
         )
     }
 
@@ -135,11 +140,67 @@ class PublicAssessmentService(
         return SubmitAssessmentResponse(task.taskNo, task.status.name, now)
     }
 
+    @Transactional
+    fun abandon(rawToken: String, request: AbandonAssessmentRequest): AbandonAssessmentResponse {
+        val reason = request.reason.trim()
+        if (reason.length !in 5..500) {
+            throw BusinessException("INVALID_ABANDONMENT_REASON", "放弃原因须为5至500个字")
+        }
+        if (rawToken.isBlank() || rawToken.length < 20) throw invalidLink()
+        val task = taskRepository.findByTokenHashForUpdate(tokenService.hash(rawToken)) ?: throw invalidLink()
+        if (task.status == TaskStatus.ARCHIVED && task.abandonmentSource == AbandonmentSource.CANDIDATE) {
+            return abandonmentResponse(task)
+        }
+        val now = clock.instant()
+        if (!task.deadline.isAfter(now)) {
+            throw BusinessException("TASK_EXPIRED", "测评链接已过期")
+        }
+        if (task.status !in ABANDONABLE_STATUSES) {
+            throw ConflictException("TASK_CANNOT_BE_ABANDONED", "当前状态不能放弃测评")
+        }
+
+        val previousStatus = task.status
+        assignmentRepository.findAllByTaskId(requireNotNull(task.id))
+            .filter { it.status == AssignmentStatus.WAITING_CANDIDATE }
+            .forEach {
+                it.status = AssignmentStatus.CANCELLED
+                it.cancelledAt = now
+                it.updatedAt = now
+            }
+        task.status = TaskStatus.ARCHIVED
+        task.archivedAt = now
+        task.finalConclusion = ReviewConclusion.ABANDONED
+        task.finalConclusionAt = now
+        task.finalConclusionReason = reason
+        task.abandonmentSource = AbandonmentSource.CANDIDATE
+        task.lastAccessAt = now
+        task.updatedAt = now
+        operationLogRepository.save(OperationLog(
+            taskId = task.id,
+            operatorType = "CANDIDATE",
+            action = "TASK_ABANDONED",
+            fromStatus = previousStatus.name,
+            toStatus = TaskStatus.ARCHIVED.name,
+            detailJson = objectMapper.writeValueAsString(mapOf(
+                "idempotencyKey" to request.idempotencyKey,
+                "source" to AbandonmentSource.CANDIDATE.name,
+                "reason" to reason,
+            )),
+            createdAt = now,
+        ))
+        eventPublisher.publishEvent(CandidateAbandonedEvent(requireNotNull(task.id), task.hrUserId))
+        return abandonmentResponse(task)
+    }
+
     private fun loadAccessibleTask(rawToken: String): AssessmentTask {
         if (rawToken.isBlank() || rawToken.length < 20) throw invalidLink()
         val task = taskRepository.findByTokenHash(tokenService.hash(rawToken)) ?: throw invalidLink()
         val now = clock.instant()
-        if (task.status == TaskStatus.REVOKED || task.status == TaskStatus.ARCHIVED) throw invalidLink()
+        if (task.status == TaskStatus.REVOKED) throw invalidLink()
+        if (task.status == TaskStatus.ARCHIVED) {
+            if (task.abandonmentSource == AbandonmentSource.CANDIDATE) return task
+            throw invalidLink()
+        }
         if (now.isAfter(task.deadline) && task.status !in setOf(TaskStatus.SUBMITTED, TaskStatus.REVIEWING, TaskStatus.REVIEWED)) {
             if (task.status != TaskStatus.EXPIRED) {
                 task.status = TaskStatus.EXPIRED
@@ -233,4 +294,17 @@ class PublicAssessmentService(
     }
 
     private fun invalidLink() = BusinessException("INVALID_ASSESSMENT_LINK", "测评链接无效或已失效", HttpStatus.NOT_FOUND)
+
+    private fun abandonmentResponse(task: AssessmentTask) = AbandonAssessmentResponse(
+        taskNo = task.taskNo,
+        status = task.status.name,
+        conclusion = ReviewConclusion.ABANDONED,
+        abandonmentSource = AbandonmentSource.CANDIDATE,
+        reason = requireNotNull(task.finalConclusionReason),
+        abandonedAt = requireNotNull(task.finalConclusionAt),
+    )
+
+    private companion object {
+        val ABANDONABLE_STATUSES = setOf(TaskStatus.SENT, TaskStatus.OPENED, TaskStatus.IN_PROGRESS)
+    }
 }

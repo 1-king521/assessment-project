@@ -26,6 +26,9 @@ const total = ref(0)
 const detail = ref(null)
 const detailTab = ref('overview')
 const extendDeadline = ref('')
+const showExtend = ref(false)
+const extendReason = ref('')
+const extending = ref(false)
 const showCreate = ref(false)
 const createdLink = ref('')
 const createdLinkInput = ref(null)
@@ -83,6 +86,7 @@ const operationActionLabels = {
   FILE_DELETED: '删除附件',
   DRAFT_SAVED: '保存答题草稿',
   TASK_SUBMITTED: '提交测评',
+  TASK_ABANDONED: '候选人主动放弃',
   REVIEWER_ADDED: '添加评估人员',
   REVIEWER_REMOVED: '移除评估人员',
   REVIEWERS_ASSIGNED: '分配评估人员',
@@ -446,8 +450,11 @@ function questionType(value) {
   return { TEXT: '文本题', SINGLE: '单选题', MULTIPLE: '多选题', FILE: '文件上传', PRACTICAL: '综合实践题' }[value] || value
 }
 
-function conclusionText(value) {
-  return { PASS: '通过', REJECTED: '不通过', RESERVED: '保留', ABANDONED: '放弃测试' }[value] || value || '未提交'
+function conclusionText(value, abandonmentSource) {
+  if (value === 'ABANDONED') {
+    return { TIMEOUT: '超时放弃', CANDIDATE: '候选人主动放弃' }[abandonmentSource] || '放弃测试'
+  }
+  return { PASS: '通过', REJECTED: '不通过', RESERVED: '保留' }[value] || value || '未提交'
 }
 
 function conclusionClass(value) {
@@ -776,6 +783,35 @@ async function openDetail(id) {
   } catch (error) { message.value = error.message }
 }
 
+function openExtendDialog() {
+  if (!detail.value) return
+  extendReason.value = ''
+  showExtend.value = true
+}
+
+function closeExtendDialog() {
+  if (extending.value) return
+  showExtend.value = false
+}
+
+async function saveExtension() {
+  if (!detail.value || extending.value) return
+  const reason = extendReason.value.trim()
+  if (reason.length < 2 || reason.length > 500) return
+  const deadline = new Date(extendDeadline.value)
+  if (Number.isNaN(deadline.getTime())) return
+  extending.value = true
+  try {
+    const succeeded = await runAction(`/api/assessment-tasks/${detail.value.id}/extend`, {
+      deadline: deadline.toISOString(),
+      reason
+    })
+    if (succeeded) showExtend.value = false
+  } finally {
+    extending.value = false
+  }
+}
+
 async function loadDetailFiles() {
   clearDetailFileUrls()
   if (!detail.value) return
@@ -824,8 +860,7 @@ function openReviewerPicker() {
 async function operate(action) {
   if (!detail.value) return
   if (action === 'extend') {
-    const deadline = new Date(extendDeadline.value).toISOString()
-    await runAction(`/api/assessment-tasks/${detail.value.id}/extend`, { deadline })
+    openExtendDialog()
   } else if (action === 'send') {
     await runAction(`/api/assessment-tasks/${detail.value.id}/send`)
   } else if (action === 'regenerate-link') {
@@ -851,7 +886,8 @@ async function runAction(path, body) {
     message.value = '操作成功'
     await refresh()
     if (detail.value) detail.value = await request(`/api/assessment-tasks/${detail.value.id}`)
-  } catch (error) { message.value = error.message }
+    return true
+  } catch (error) { message.value = error.message; return false }
 }
 
 function formatDate(value) {
@@ -970,7 +1006,7 @@ onUnmounted(() => { clearRecordFileUrls(); clearDetailFileUrls() })
           <button class="primary-button compact" @click="searchRecords">查询</button>
         </section>
         <section class="table-section"><div class="section-heading"><div><h2>候选人历史测评</h2><span>{{ recordTotal }} 条记录</span></div><span v-if="recordLoading" class="loading">正在加载...</span></div>
-          <div class="table-scroll"><table><thead><tr><th>候选人</th><th>岗位</th><th>任务编号</th><th>模板版本</th><th>评估结论</th><th>结论时间</th><th>归档时间</th><th>状态</th><th></th></tr></thead><tbody><tr v-for="record in records" :key="record.id"><td><strong>{{ record.candidateName }}</strong><small>{{ record.candidatePhone || record.candidateEmail || '--' }}</small></td><td>{{ record.positionName }}</td><td>{{ record.taskNo }}</td><td>v{{ record.templateVersionNo }}</td><td><div class="record-conclusions"><span v-for="(conclusion, index) in record.conclusions" :key="`${conclusion}-${index}`" class="conclusion-pill" :class="conclusionClass(conclusion)">{{ conclusionText(conclusion) }}</span><span v-if="!record.conclusions.length" class="muted">无评估结论</span></div></td><td>{{ formatDate(record.concludedAt) }}</td><td>{{ formatDate(record.archivedAt) }}</td><td><span class="status-pill" :class="statusClass(record.status)">{{ statusText(record.status) }}</span></td><td><button class="detail-button" @click="openRecord(record.id)">查看记录 →</button></td></tr><tr v-if="!records.length"><td colspan="9" class="empty">暂无符合条件的归档记录</td></tr></tbody></table></div>
+          <div class="table-scroll"><table><thead><tr><th>候选人</th><th>岗位</th><th>任务编号</th><th>模板版本</th><th>评估结论</th><th>结论时间</th><th>归档时间</th><th>状态</th><th></th></tr></thead><tbody><tr v-for="record in records" :key="record.id"><td><strong>{{ record.candidateName }}</strong><small>{{ record.candidatePhone || record.candidateEmail || '--' }}</small></td><td>{{ record.positionName }}</td><td>{{ record.taskNo }}</td><td>v{{ record.templateVersionNo }}</td><td><div class="record-conclusions"><span v-for="(conclusion, index) in record.conclusions" :key="`${conclusion}-${index}`" class="conclusion-pill" :class="conclusionClass(conclusion)">{{ conclusionText(conclusion, record.abandonmentSource) }}</span><span v-if="!record.conclusions.length" class="muted">无评估结论</span></div></td><td>{{ formatDate(record.concludedAt) }}</td><td>{{ formatDate(record.archivedAt) }}</td><td><span class="status-pill" :class="statusClass(record.status)">{{ statusText(record.status) }}</span></td><td><button class="detail-button" @click="openRecord(record.id)">查看记录 →</button></td></tr><tr v-if="!records.length"><td colspan="9" class="empty">暂无符合条件的归档记录</td></tr></tbody></table></div>
           <footer class="pagination"><span>第 {{ recordPage }} / {{ recordTotalPages }} 页</span><div><button :disabled="recordPage <= 1" @click="recordPage--; loadRecords()">上一页</button><button :disabled="recordPage >= recordTotalPages" @click="recordPage++; loadRecords()">下一页</button></div></footer>
         </section>
       </template>
@@ -986,8 +1022,19 @@ onUnmounted(() => { clearRecordFileUrls(); clearDetailFileUrls() })
   </main>
 
   <div v-if="detail" class="drawer-backdrop" @click.self="detail = null"><aside class="drawer"><header><div><p class="eyebrow">TASK DETAIL</p><h2>{{ detail.taskNo }}</h2></div><button class="close-button" title="关闭详情" @click="detail = null">×</button></header><div class="drawer-summary"><div><span>候选人</span><strong>{{ detail.candidateName }}</strong></div><span class="status-pill" :class="statusClass(detail.status)">{{ statusText(detail.status) }}</span></div><div class="detail-actions"><button v-if="['DRAFT','SENT','OPENED','IN_PROGRESS'].includes(detail.status)" class="outline-button" @click="operate('revoke')">撤回任务</button><button v-if="['DRAFT','SENT','OPENED','IN_PROGRESS'].includes(detail.status)" class="outline-button" @click="operate('regenerate-link')">重新生成链接</button><button v-if="!['REVOKED','ARCHIVED','REVIEWED'].includes(detail.status)" class="outline-button" @click="operate('extend')">保存延期</button><button v-if="['REVIEWED','REVOKED','EXPIRED'].includes(detail.status)" class="primary-button compact" @click="operate('archive')">归档任务</button></div><label v-if="!['REVOKED','ARCHIVED','REVIEWED'].includes(detail.status)" class="deadline-input">截止时间<input v-model="extendDeadline" type="datetime-local" /></label><div class="tabs"><button :class="{selected: detailTab === 'overview'}" @click="detailTab='overview'">概览</button><button :class="{selected: detailTab === 'review'}" @click="detailTab='review'">评估分配</button><button :class="{selected: detailTab === 'logs'}" @click="detailTab='logs'">操作日志</button></div><div v-if="detailTab === 'overview'" class="detail-content"><dl><dt>候选人联系方式</dt><dd>{{ detail.candidatePhone || '--' }} · {{ detail.candidateEmail || '--' }}</dd><dt>应聘岗位</dt><dd>{{ detail.position.name }}（{{ detail.position.code }}）</dd><dt>模板版本</dt><dd>v{{ detail.templateVersion.versionNo }} · {{ detail.templateVersion.status }}</dd><dt>截止时间</dt><dd>{{ formatDate(detail.deadline) }}</dd></dl><h3>答案（{{ detail.answers.length }}）</h3><div v-for="answer in detail.answers" :key="answer.id" class="answer-row"><strong>{{ answer.questionId }}</strong><code>{{ answer.answerJson }}</code></div><h3>附件（{{ detail.files.length }}）</h3><p v-if="!detail.files.length" class="muted">暂无附件</p><div v-for="file in detail.files" :key="file.id" class="file-row">{{ file.fileName }} <span>{{ file.sizeBytes }} bytes</span></div></div><div v-if="detailTab === 'review'" class="detail-content"><div v-if="detail.status === 'SUBMITTED' && detail.assignments.every(item => item.status === 'PENDING')" class="assignment-editor"><p class="muted">候选人已提交，请确认测评内容后选择评估人员。</p><div class="selected-reviewers"><span v-if="!selectedReviewers.length" class="muted">尚未选择评估人员</span><span v-for="reviewer in selectedReviewers" :key="reviewer.id" class="reviewer-chip">{{ reviewer.realName }}<button type="button" title="移除" @click="detailReviewerIds = detailReviewerIds.filter(id => id !== reviewer.id)">×</button></span></div><button type="button" class="outline-button" @click="openReviewerPicker">选择评估人员（{{ detailReviewerIds.length }}）</button><label class="review-timeout-field">评估时限<div class="review-timeout-control"><input v-model.number="reviewTimeoutValue" type="number" min="1" :max="reviewTimeoutUnit === 'DAYS' ? 30 : 720" step="1" inputmode="numeric" /><select v-model="reviewTimeoutUnit"><option value="DAYS">天</option><option value="HOURS">小时</option></select></div><small>预计截止：{{ formatDate(estimatedReviewDueAt) }}</small></label><button class="primary-button" :disabled="assigningReviewers || !detailReviewerIds.length || !reviewTimeoutValid" @click="assignReviewers">{{ assigningReviewers ? '保存中...' : '分配评估人员' }}</button></div><p v-if="!detail.assignments.length" class="muted">尚未分配评估人员</p><div v-for="assignment in detail.assignments" :key="assignment.id" class="assignment-row"><div><strong>{{ assignment.reviewerUserName }}</strong><small>{{ assignment.status }} · 截止 {{ formatDate(assignment.reviewDueAt) }}</small></div><div class="review-result"><span v-if="isReviewOverdue(assignment)" class="overdue-text">已超时</span>{{ assignment.conclusion || '未提交' }} <span v-if="assignment.score">{{ assignment.score }} 分</span></div></div></div><div v-if="detailTab === 'logs'" class="detail-content timeline"><div v-for="log in detail.operationLogs" :key="log.id"><span>{{ formatDate(log.createdAt) }}</span><strong>{{ operationActionText(log.action) }}</strong><small>{{ log.fromStatus ? statusText(log.fromStatus) : '--' }} → {{ log.toStatus ? statusText(log.toStatus) : '--' }}</small></div></div></aside></div>
+  <div v-if="showExtend" class="modal-backdrop" @click.self="closeExtendDialog">
+    <section class="create-modal extend-modal">
+      <header><div><p class="eyebrow">EXTEND ASSESSMENT DEADLINE</p><h2>确认延期</h2><p class="muted">候选人：{{ detail?.candidateName }} · {{ detail?.taskNo }}</p></div><button class="close-button" title="关闭延期窗口" @click="closeExtendDialog">×</button></header>
+      <form class="create-form" @submit.prevent="saveExtension">
+        <div class="extend-summary"><div><span>原截止时间</span><strong>{{ formatDate(detail?.deadline) }}</strong></div><div><span>新截止时间</span><strong>{{ extendDeadline ? formatDate(new Date(extendDeadline).toISOString()) : '--' }}</strong></div></div>
+        <label>延期原因 *<textarea v-model="extendReason" rows="5" minlength="2" maxlength="500" required placeholder="请填写延期原因（2-500字）"></textarea></label>
+        <div class="field-hint">{{ extendReason.trim().length }}/500 字</div>
+        <footer class="modal-footer"><button type="button" class="outline-button" @click="closeExtendDialog">取消</button><button type="submit" class="primary-button" :disabled="extending || extendReason.trim().length < 2 || extendReason.trim().length > 500">{{ extending ? '保存中...' : '确认延期' }}</button></footer>
+      </form>
+    </section>
+  </div>
   <div v-if="showReviewerPicker" class="modal-backdrop reviewer-picker-backdrop" @click.self="showReviewerPicker = false"><section class="reviewer-picker"><header><div><p class="eyebrow">REVIEWER SELECTION</p><h2>选择评估人员</h2></div><button class="close-button" title="关闭选择窗口" @click="showReviewerPicker = false">×</button></header><div class="reviewer-picker-toolbar"><label>筛选部门<select v-model="selectedDepartment"><option value="">全部部门</option><option v-for="department in availableDepartments" :key="department" :value="department">{{ department }}</option></select></label><label>搜索评估人员<input v-model="reviewerSearch" placeholder="搜索姓名或账号" /></label><label class="reviewer-picker-action">批量操作<button type="button" class="detail-button" @click="toggleAllFilteredReviewers">{{ allFilteredReviewersSelected ? '取消全选' : '全选当前结果' }}</button></label></div><div class="reviewer-picker-list"><label v-for="reviewer in filteredReviewers" :key="reviewer.id" class="reviewer-option"><input v-model="detailReviewerIds" type="checkbox" :value="reviewer.id" /> <span>{{ reviewer.username }} {{ reviewer.realName }}</span></label><p v-if="!filteredReviewers.length" class="empty">没有匹配的评估人员</p></div><footer class="modal-footer"><span class="muted">已选择 {{ detailReviewerIds.length }} 人</span><button type="button" class="outline-button" @click="showReviewerPicker = false">完成选择</button></footer></section></div>
-  <div v-if="recordDetail" class="drawer-backdrop record-backdrop" @click.self="closeRecord"><aside class="drawer record-drawer"><header><div><p class="eyebrow">ASSESSMENT RECORD</p><h2>{{ recordDetail.candidateName }}的测评记录</h2><p class="muted">{{ recordDetail.taskNo }} · {{ recordDetail.position.name }}</p></div><button class="close-button" title="关闭记录" @click="closeRecord">×</button></header><section class="record-summary"><div><span>模板版本</span><strong>v{{ recordDetail.templateVersion.versionNo }}</strong></div><div><span>提交时间</span><strong>{{ formatDate(recordDetail.submittedAt) }}</strong></div><div><span>结论时间</span><strong>{{ formatDate(recordDetail.finalConclusionAt || recordDetail.reviewedAt) }}</strong></div><div><span>记录状态</span><strong>{{ statusText(recordDetail.status) }}</strong></div></section><section class="record-section"><div class="record-section-heading"><h3>测评内容</h3><span>{{ recordQuestions.length }} 道题</span></div><article v-for="(question, questionIndex) in recordQuestions" :key="question.id || questionIndex" class="record-question"><div class="review-question-head"><strong>题目 {{ questionIndex + 1 }}</strong><small>{{ questionType(question.type) }}</small></div><p class="record-question-title">{{ question.title }}</p><div v-if="question.materials?.length" class="review-question-resources"><strong>参考资料</strong><div class="review-resource-grid"><div v-for="(material, materialIndex) in question.materials" :key="materialIndex" class="review-resource"><img v-if="isImageMaterial(material)" :src="material.url" :alt="material.name || '参考图片'" loading="lazy" /><a v-else :href="material.url" :download="material.name || '参考文件'" target="_blank" rel="noopener">{{ material.name || '参考文件' }}<span>下载</span></a></div></div></div><div class="record-answer"><strong>候选人答案</strong><p>{{ formatAnswer(recordAnswer(question.id)?.answerJson) }}</p></div><div v-if="recordFilesForQuestion(question.id).length" class="review-question-submissions"><strong>候选人附件</strong><div v-for="file in recordFilesForQuestion(question.id)" :key="file.id" class="review-file"><div v-if="isImageFile(file)" class="review-file-preview"><img v-if="recordFileUrls[file.id]" :src="recordFileUrls[file.id]" :alt="file.fileName" /><span v-else>图片加载中...</span></div><div class="review-file-info"><div class="review-file-title"><a v-if="recordFileUrls[file.id]" :href="recordFileUrls[file.id]" :download="file.fileName" target="_blank" rel="noopener">{{ file.fileName }}</a><strong v-else>{{ file.fileName }}</strong></div><small>{{ file.contentType }} · {{ formatFileSize(file.sizeBytes) }}</small></div></div></div></article><p v-if="!recordQuestions.length" class="empty">历史模板题目读取失败</p></section><section class="record-section"><div class="record-section-heading"><h3>评估结果</h3><span>{{ recordDetail.finalConclusion ? '系统自动处理' : `${recordDetail.assignments.length} 位评估人员` }}</span></div><article v-if="recordDetail.finalConclusion" class="record-review"><div><strong>系统自动处理</strong><small>{{ formatDate(recordDetail.finalConclusionAt) }}</small></div><span class="conclusion-pill" :class="conclusionClass(recordDetail.finalConclusion)">{{ conclusionText(recordDetail.finalConclusion) }}</span><p>{{ recordDetail.finalConclusionReason || '截止时间内未提交测评' }}</p></article><article v-for="assignment in recordDetail.assignments" :key="assignment.id" class="record-review"><div><strong>{{ assignment.reviewerUserName }}</strong><small>{{ formatDate(assignment.reviewSubmittedAt || assignment.completedAt) }}</small></div><span class="conclusion-pill" :class="conclusionClass(assignment.conclusion)">{{ conclusionText(assignment.conclusion) }}</span><p v-if="assignment.reason">{{ assignment.reason }}</p><p v-else class="muted">未填写评估说明</p></article></section><section class="record-section"><div class="record-section-heading"><h3>操作时间线</h3><span>{{ recordDetail.operationLogs.length }} 条记录</span></div><div class="detail-content timeline record-timeline"><div v-for="log in recordDetail.operationLogs" :key="log.id"><span>{{ formatDate(log.createdAt) }}</span><strong>{{ operationActionText(log.action) }}</strong><small>{{ log.fromStatus ? statusText(log.fromStatus) : '--' }} → {{ log.toStatus ? statusText(log.toStatus) : '--' }}</small></div></div></section></aside></div>
+  <div v-if="recordDetail" class="drawer-backdrop record-backdrop" @click.self="closeRecord"><aside class="drawer record-drawer"><header><div><p class="eyebrow">ASSESSMENT RECORD</p><h2>{{ recordDetail.candidateName }}的测评记录</h2><p class="muted">{{ recordDetail.taskNo }} · {{ recordDetail.position.name }}</p></div><button class="close-button" title="关闭记录" @click="closeRecord">×</button></header><section class="record-summary"><div><span>模板版本</span><strong>v{{ recordDetail.templateVersion.versionNo }}</strong></div><div><span>提交时间</span><strong>{{ formatDate(recordDetail.submittedAt) }}</strong></div><div><span>结论时间</span><strong>{{ formatDate(recordDetail.finalConclusionAt || recordDetail.reviewedAt) }}</strong></div><div><span>记录状态</span><strong>{{ statusText(recordDetail.status) }}</strong></div></section><section class="record-section"><div class="record-section-heading"><h3>测评内容</h3><span>{{ recordQuestions.length }} 道题</span></div><article v-for="(question, questionIndex) in recordQuestions" :key="question.id || questionIndex" class="record-question"><div class="review-question-head"><strong>题目 {{ questionIndex + 1 }}</strong><small>{{ questionType(question.type) }}</small></div><p class="record-question-title">{{ question.title }}</p><div v-if="question.materials?.length" class="review-question-resources"><strong>参考资料</strong><div class="review-resource-grid"><div v-for="(material, materialIndex) in question.materials" :key="materialIndex" class="review-resource"><img v-if="isImageMaterial(material)" :src="material.url" :alt="material.name || '参考图片'" loading="lazy" /><a v-else :href="material.url" :download="material.name || '参考文件'" target="_blank" rel="noopener">{{ material.name || '参考文件' }}<span>下载</span></a></div></div></div><div class="record-answer"><strong>候选人答案</strong><p>{{ formatAnswer(recordAnswer(question.id)?.answerJson) }}</p></div><div v-if="recordFilesForQuestion(question.id).length" class="review-question-submissions"><strong>候选人附件</strong><div v-for="file in recordFilesForQuestion(question.id)" :key="file.id" class="review-file"><div v-if="isImageFile(file)" class="review-file-preview"><img v-if="recordFileUrls[file.id]" :src="recordFileUrls[file.id]" :alt="file.fileName" /><span v-else>图片加载中...</span></div><div class="review-file-info"><div class="review-file-title"><a v-if="recordFileUrls[file.id]" :href="recordFileUrls[file.id]" :download="file.fileName" target="_blank" rel="noopener">{{ file.fileName }}</a><strong v-else>{{ file.fileName }}</strong></div><small>{{ file.contentType }} · {{ formatFileSize(file.sizeBytes) }}</small></div></div></div></article><p v-if="!recordQuestions.length" class="empty">历史模板题目读取失败</p></section><section class="record-section"><div class="record-section-heading"><h3>评估结果</h3><span>{{ recordDetail.finalConclusion ? (recordDetail.abandonmentSource === 'CANDIDATE' ? '候选人操作' : '系统自动处理') : `${recordDetail.assignments.length} 位评估人员` }}</span></div><article v-if="recordDetail.finalConclusion" class="record-review"><div><strong>{{ recordDetail.abandonmentSource === 'CANDIDATE' ? '候选人主动放弃' : '系统自动处理' }}</strong><small>{{ formatDate(recordDetail.finalConclusionAt) }}</small></div><span class="conclusion-pill" :class="conclusionClass(recordDetail.finalConclusion)">{{ conclusionText(recordDetail.finalConclusion, recordDetail.abandonmentSource) }}</span><p>{{ recordDetail.finalConclusionReason || '截止时间内未提交测评' }}</p></article><article v-for="assignment in recordDetail.assignments" :key="assignment.id" class="record-review"><div><strong>{{ assignment.reviewerUserName }}</strong><small>{{ formatDate(assignment.reviewSubmittedAt || assignment.completedAt) }}</small></div><span class="conclusion-pill" :class="conclusionClass(assignment.conclusion)">{{ conclusionText(assignment.conclusion) }}</span><p v-if="assignment.reason">{{ assignment.reason }}</p><p v-else class="muted">未填写评估说明</p></article></section><section class="record-section"><div class="record-section-heading"><h3>操作时间线</h3><span>{{ recordDetail.operationLogs.length }} 条记录</span></div><div class="detail-content timeline record-timeline"><div v-for="log in recordDetail.operationLogs" :key="log.id"><span>{{ formatDate(log.createdAt) }}</span><strong>{{ operationActionText(log.action) }}</strong><small>{{ log.fromStatus ? statusText(log.fromStatus) : '--' }} → {{ log.toStatus ? statusText(log.toStatus) : '--' }}</small></div></div></section></aside></div>
   <div v-if="showCreate" class="modal-backdrop" @click.self="showCreate = false">
     <section class="create-modal">
       <header><div><p class="eyebrow">NEW ASSESSMENT TASK</p><h2>创建测评任务</h2></div><button class="close-button" title="关闭创建窗口" @click="showCreate = false">×</button></header>

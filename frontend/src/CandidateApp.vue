@@ -27,12 +27,18 @@ const uploading = ref({})
 const submitting = ref(false)
 const submitted = ref(false)
 const submitError = ref('')
+const showAbandonDialog = ref(false)
+const abandonReason = ref('')
+const abandonError = ref('')
+const abandoning = ref(false)
 let saveTimer
 
 const questions = computed(() => schema.value.questions || [])
 const completedCount = computed(() => questions.value.filter(isCompleted).length)
 const progress = computed(() => questions.value.length ? Math.round(completedCount.value / questions.value.length * 100) : 0)
-const closedStatus = computed(() => ['SUBMITTED', 'REVIEWING', 'REVIEWED'].includes(assessment.value?.status))
+const abandoned = computed(() => assessment.value?.abandonmentSource === 'CANDIDATE')
+const closedStatus = computed(() => ['SUBMITTED', 'REVIEWING', 'REVIEWED', 'ARCHIVED'].includes(assessment.value?.status))
+const validAbandonReason = computed(() => abandonReason.value.trim().length >= 5 && abandonReason.value.trim().length <= 500)
 
 async function api(path, options = {}) {
   const response = await fetch(path, { credentials: 'include', ...options, headers: { ...(options.body && !(options.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}), ...(options.headers || {}) } })
@@ -51,7 +57,7 @@ async function loadPublic() {
     const data = await api(`/api/public/assessments/${token}`)
     assessment.value = data
     submitted.value = ['SUBMITTED', 'REVIEWING', 'REVIEWED'].includes(data.status)
-    if (!submitted.value) { const draft = await api(`/api/public/assessments/${token}/draft`); setAssessment(draft) }
+    if (!submitted.value && !abandoned.value) { const draft = await api(`/api/public/assessments/${token}/draft`); setAssessment(draft) }
   } catch (exception) { error.value = exception.message } finally { loading.value = false }
 }
 
@@ -132,6 +138,38 @@ async function submitAssessment() {
   } finally { submitting.value = false }
 }
 
+function openAbandonDialog() {
+  abandonReason.value = ''
+  abandonError.value = ''
+  showAbandonDialog.value = true
+}
+
+async function abandonAssessment() {
+  abandonError.value = ''
+  if (!validAbandonReason.value) {
+    abandonError.value = '请填写5至500个字的放弃原因'
+    return
+  }
+  abandoning.value = true
+  try {
+    const result = await api(`/api/public/assessments/${token}/abandon`, {
+      method: 'POST',
+      body: JSON.stringify({ idempotencyKey: generateUUID(), reason: abandonReason.value.trim() })
+    })
+    assessment.value = {
+      ...assessment.value,
+      status: result.status,
+      abandonmentSource: result.abandonmentSource,
+      abandonmentReason: result.reason,
+      abandonedAt: result.abandonedAt
+    }
+    clearTimeout(saveTimer)
+    showAbandonDialog.value = false
+  } catch (exception) {
+    abandonError.value = exception.message
+  } finally { abandoning.value = false }
+}
+
 function filesFor(questionId) { return assessment.value?.files?.filter(item => item.questionId === questionId && item.uploadStatus !== 'DELETED') || [] }
 function isImageMaterial(material) {
   if (material.kind === '参考图片' || material.url?.startsWith('data:image/')) return true
@@ -149,10 +187,12 @@ onMounted(loadPublic)
   <main class="candidate-page">
     <div v-if="loading" class="candidate-state"><div class="candidate-logo">RA</div><h1>正在加载测评</h1><p>请稍候...</p></div>
     <div v-else-if="error && !assessment" class="candidate-state"><div class="candidate-logo danger">!</div><h1>无法打开测评</h1><p>{{ error }}</p></div>
+    <div v-else-if="abandoned" class="candidate-state"><div class="candidate-logo danger">×</div><h1>你已放弃本次测评</h1><p>{{ assessment?.candidateName }}，本次测评已结束。</p><dl class="result-meta"><dt>任务编号</dt><dd>{{ assessment?.taskNo }}</dd><dt>应聘岗位</dt><dd>{{ assessment?.positionName }}</dd><dt>放弃时间</dt><dd>{{ formatDate(assessment?.abandonedAt) }}</dd><dt>放弃原因</dt><dd class="result-reason">{{ assessment?.abandonmentReason }}</dd></dl></div>
     <div v-else-if="submitted || closedStatus" class="candidate-state"><div class="candidate-logo success">✓</div><h1>测评已提交</h1><p>{{ assessment?.candidateName }}，你的答案已成功提交。</p><dl class="result-meta"><dt>任务编号</dt><dd>{{ assessment?.taskNo }}</dd><dt>应聘岗位</dt><dd>{{ assessment?.positionName }}</dd></dl></div>
     <template v-else-if="assessment">
       <header class="candidate-header"><div class="candidate-brand"><span class="candidate-logo compact">RA</span><div><strong>招聘测评</strong><small>{{ assessment.positionName }}</small></div></div><div class="candidate-deadline"><span>截止时间</span><strong>{{ formatDate(assessment.deadline) }}</strong></div></header>
-      <div class="assessment-layout"><aside class="question-nav"><p class="eyebrow">ASSESSMENT</p><h2>{{ assessment.candidateName }}</h2><div class="progress-track"><span :style="{width: `${progress}%`}"></span></div><small>已完成 {{ completedCount }} / {{ questions.length }}</small><nav><button v-for="(question, index) in questions" :key="question.id" :class="{done: isCompleted(question)}" @click="scrollToQuestion(question.id)"><span>{{ index + 1 }}</span>{{ question.title }}</button></nav></aside><section class="assessment-main"><div class="assessment-intro"><p class="eyebrow">{{ assessment.taskNo }}</p><h1>{{ assessment.positionName }}测评</h1><p>请按实际情况完成以下内容。作答期间会自动保存草稿。</p></div><div v-if="error" class="candidate-alert" @click="error = ''">{{ error }} <span>×</span></div><article v-for="(question, index) in questions" :id="`question-${question.id}`" :key="question.id" class="candidate-question"><header><span>0{{ index + 1 }}</span><div><h2>{{ question.title }} <em v-if="question.required">必填</em></h2><small>{{ question.type }}</small></div></header><textarea v-if="question.type === 'TEXT'" v-model="answers[question.id]" rows="6" placeholder="请输入你的回答" @input="answerChanged" /><div v-else-if="question.type === 'SINGLE'" class="choice-list"><label v-for="option in question.options" :key="option"><input v-model="answers[question.id]" type="radio" :value="option" @change="answerChanged" /><span>{{ option }}</span></label></div><div v-else-if="question.type === 'MULTIPLE'" class="choice-list"><label v-for="option in question.options" :key="option"><input v-model="answers[question.id]" type="checkbox" :value="option" @change="answerChanged" /><span>{{ option }}</span></label></div><div v-if="question.materials?.length" class="reference-materials"><strong>参考资料</strong><div v-for="(material, materialIndex) in question.materials" :key="materialIndex" class="reference-material"><img v-if="isImageMaterial(material)" :src="material.url" :alt="material.name || '参考图片'" loading="lazy" /><a v-else :href="material.url" :download="material.name || '参考文件'" target="_blank" rel="noopener">{{ material.name || '参考文件' }}<span>下载</span></a></div></div><div v-if="question.type === 'FILE'" class="candidate-upload"><label><input type="file" @change="uploadFile(question, $event)" /><span>{{ uploading[question.id] ? '上传中...' : '选择文件上传' }}</span></label><div v-for="file in filesFor(question.id)" :key="file.id" class="candidate-file"><strong>{{ file.fileName }}</strong><small>{{ Math.ceil(file.sizeBytes / 1024) }} KB · {{ file.uploadStatus }}</small><button title="删除附件" @click="deleteFile(file.id)">×</button></div></div></article><footer class="submit-bar"><div><strong>{{ saving ? '正在保存...' : savedAt ? `已保存 ${formatDate(savedAt)}` : '草稿尚未保存' }}</strong><small>提交后将不能继续修改</small></div><button class="primary-button" :disabled="submitting" @click="submitAssessment">{{ submitting ? '提交中...' : '提交测评' }}</button></footer><p v-if="submitError" class="submit-error">{{ submitError }}</p></section></div>
+      <div class="assessment-layout"><aside class="question-nav"><p class="eyebrow">ASSESSMENT</p><h2>{{ assessment.candidateName }}</h2><div class="progress-track"><span :style="{width: `${progress}%`}"></span></div><small>已完成 {{ completedCount }} / {{ questions.length }}</small><nav><button v-for="(question, index) in questions" :key="question.id" :class="{done: isCompleted(question)}" @click="scrollToQuestion(question.id)"><span>{{ index + 1 }}</span>{{ question.title }}</button></nav></aside><section class="assessment-main"><div class="assessment-intro"><p class="eyebrow">{{ assessment.taskNo }}</p><h1>{{ assessment.positionName }}测评</h1><p>请按实际情况完成以下内容。作答期间会自动保存草稿。</p></div><div v-if="error" class="candidate-alert" @click="error = ''">{{ error }} <span>×</span></div><article v-for="(question, index) in questions" :id="`question-${question.id}`" :key="question.id" class="candidate-question"><header><span>0{{ index + 1 }}</span><div><h2>{{ question.title }} <em v-if="question.required">必填</em></h2><small>{{ question.type }}</small></div></header><textarea v-if="question.type === 'TEXT'" v-model="answers[question.id]" rows="6" placeholder="请输入你的回答" @input="answerChanged" /><div v-else-if="question.type === 'SINGLE'" class="choice-list"><label v-for="option in question.options" :key="option"><input v-model="answers[question.id]" type="radio" :value="option" @change="answerChanged" /><span>{{ option }}</span></label></div><div v-else-if="question.type === 'MULTIPLE'" class="choice-list"><label v-for="option in question.options" :key="option"><input v-model="answers[question.id]" type="checkbox" :value="option" @change="answerChanged" /><span>{{ option }}</span></label></div><div v-if="question.materials?.length" class="reference-materials"><strong>参考资料</strong><div v-for="(material, materialIndex) in question.materials" :key="materialIndex" class="reference-material"><img v-if="isImageMaterial(material)" :src="material.url" :alt="material.name || '参考图片'" loading="lazy" /><a v-else :href="material.url" :download="material.name || '参考文件'" target="_blank" rel="noopener">{{ material.name || '参考文件' }}<span>下载</span></a></div></div><div v-if="question.type === 'FILE'" class="candidate-upload"><label><input type="file" @change="uploadFile(question, $event)" /><span>{{ uploading[question.id] ? '上传中...' : '选择文件上传' }}</span></label><div v-for="file in filesFor(question.id)" :key="file.id" class="candidate-file"><strong>{{ file.fileName }}</strong><small>{{ Math.ceil(file.sizeBytes / 1024) }} KB · {{ file.uploadStatus }}</small><button title="删除附件" @click="deleteFile(file.id)">×</button></div></div></article><footer class="submit-bar"><div><strong>{{ saving ? '正在保存...' : savedAt ? `已保存 ${formatDate(savedAt)}` : '草稿尚未保存' }}</strong><small>提交或放弃后将不能继续修改</small></div><div class="submit-actions"><button class="outline-button danger-button" :disabled="submitting || abandoning" @click="openAbandonDialog">放弃测试</button><button class="primary-button" :disabled="submitting || abandoning" @click="submitAssessment">{{ submitting ? '提交中...' : '提交测评' }}</button></div></footer><p v-if="submitError" class="submit-error">{{ submitError }}</p></section></div>
     </template>
+    <div v-if="showAbandonDialog" class="modal-backdrop abandon-backdrop" @click.self="!abandoning && (showAbandonDialog = false)"><section class="abandon-modal" role="dialog" aria-modal="true" aria-labelledby="abandon-title"><header><div><p class="eyebrow">END ASSESSMENT</p><h2 id="abandon-title">确认放弃本次测评</h2></div><button class="close-button" title="关闭" :disabled="abandoning" @click="showAbandonDialog = false">×</button></header><p class="abandon-warning">放弃后将不能继续填写或提交测评，请确认后再操作。</p><label>放弃原因 *<textarea v-model="abandonReason" rows="5" maxlength="500" placeholder="请说明放弃本次测评的原因" @input="abandonError = ''"></textarea><small>{{ abandonReason.trim().length }} / 500，至少填写5个字</small></label><p v-if="abandonError" class="error-text">{{ abandonError }}</p><footer class="modal-footer"><button class="outline-button" :disabled="abandoning" @click="showAbandonDialog = false">取消</button><button class="primary-button abandon-confirm" :disabled="abandoning || !validAbandonReason" @click="abandonAssessment">{{ abandoning ? '处理中...' : '确认放弃' }}</button></footer></section></div>
   </main>
 </template>

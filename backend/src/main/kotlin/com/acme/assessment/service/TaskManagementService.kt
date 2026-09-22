@@ -168,6 +168,7 @@ class TaskManagementService(
             task.status, task.deadline, task.sentAt, task.openedAt, task.submittedAt, task.reviewStartedAt,
             task.reviewedAt, task.revokedAt, task.archivedAt,
             task.finalConclusion, task.finalConclusionAt, task.finalConclusionReason,
+            task.abandonmentSource,
             //查询该任务下所有候选人答题记录
             if (includeSubmission) answerRepository.findAllByTaskId(id).map { TaskAnswerResponse(requireNotNull(it.id), it.questionId, it.answerJson, it.draftVersion, it.submittedAt) } else emptyList(),
             //查询任务附件，过滤掉已删除的文件
@@ -206,7 +207,7 @@ class TaskManagementService(
         }
         task.deadline = request.deadline
         task.updatedAt = now
-        operationLogRepository.save(OperationLog(taskId = task.id, operatorId = authenticationService.currentUser().id, action = "TASK_EXTENDED", detailJson = "{\"deadline\":\"${request.deadline}\"}", createdAt = now))
+        operationLogRepository.save(OperationLog(taskId = task.id, operatorId = authenticationService.currentUser().id, action = "TASK_EXTENDED", detailJson = objectMapper.writeValueAsString(mapOf("deadline" to request.deadline.toString(), "reason" to request.reason)), createdAt = now))
         return TaskActionResponse(requireNotNull(task.id), task.taskNo, task.status, task.deadline, now)
     }
 
@@ -296,6 +297,7 @@ class TaskManagementService(
             concludedAt = recordTimestamp(task),
             archivedAt = task.archivedAt,
             conclusions = conclusions(task),
+            abandonmentSource = task.abandonmentSource,
         )
     }
 

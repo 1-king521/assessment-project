@@ -25,6 +25,7 @@ enum class TemplateVersionStatus { DRAFT, PENDING, PUBLISHED, ARCHIVED }
 enum class TaskStatus { DRAFT, SENT, OPENED, IN_PROGRESS, SUBMITTED, EXPIRED, REVOKED, REVIEWING, REVIEWED, ARCHIVED }
 enum class AssignmentStatus { WAITING_CANDIDATE, PENDING, IN_PROGRESS, COMPLETED, CANCELLED }
 enum class ReviewConclusion { PASS, REJECTED, RESERVED, ABANDONED }
+enum class AbandonmentSource { TIMEOUT, CANDIDATE }
 
 @Entity
 @Table(name = "sys_role")
@@ -274,6 +275,9 @@ class AssessmentTask(
     var finalConclusionAt: Instant? = null,
     @Column(name = "final_conclusion_reason")
     var finalConclusionReason: String? = null,
+    @Enumerated(EnumType.STRING)
+    @Column(name = "abandonment_source")
+    var abandonmentSource: AbandonmentSource? = null,
     @Version
     var version: Int = 0,
     @Column(name = "created_by", nullable = false)

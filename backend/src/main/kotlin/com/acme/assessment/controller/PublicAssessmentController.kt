@@ -28,4 +28,7 @@ class PublicAssessmentController(private val service: PublicAssessmentService) {
 
     @PostMapping("/submit")
     fun submit(@PathVariable token: String, @Valid @RequestBody request: SubmitAssessmentRequest) = service.submit(token, request)
+
+    @PostMapping("/abandon")
+    fun abandon(@PathVariable token: String, @Valid @RequestBody request: AbandonAssessmentRequest) = service.abandon(token, request)
 }

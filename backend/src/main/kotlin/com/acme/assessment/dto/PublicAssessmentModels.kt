@@ -8,6 +8,7 @@ import com.acme.assessment.entity.*
 import jakarta.validation.Valid
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.PositiveOrZero
+import jakarta.validation.constraints.Size
 import java.time.Instant
 
 data class PublicAssessmentOverviewResponse(
@@ -17,6 +18,9 @@ data class PublicAssessmentOverviewResponse(
     val positionName: String,
     val deadline: Instant,
     val status: String,
+    val abandonmentSource: AbandonmentSource? = null,
+    val abandonmentReason: String? = null,
+    val abandonedAt: Instant? = null,
 )
 
 data class PublicAssessmentResponse(
@@ -78,4 +82,21 @@ data class SubmitAssessmentResponse(
     val taskNo: String,
     val status: String,
     val submittedAt: Instant,
+)
+
+data class AbandonAssessmentRequest(
+    @field:NotBlank(message = "幂等键不能为空")
+    val idempotencyKey: String,
+    @field:NotBlank(message = "请填写放弃原因")
+    @field:Size(min = 5, max = 500, message = "放弃原因须为5至500个字")
+    val reason: String,
+)
+
+data class AbandonAssessmentResponse(
+    val taskNo: String,
+    val status: String,
+    val conclusion: ReviewConclusion,
+    val abandonmentSource: AbandonmentSource,
+    val reason: String,
+    val abandonedAt: Instant,
 )

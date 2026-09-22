@@ -12,7 +12,9 @@ import jakarta.validation.constraints.Future
 import jakarta.validation.constraints.Max
 import jakarta.validation.constraints.Min
 import jakarta.validation.constraints.NotEmpty
+import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.Positive
+import jakarta.validation.constraints.Size
 import java.math.BigDecimal
 import java.time.Instant
 import org.springframework.core.io.Resource
@@ -46,6 +48,7 @@ data class AssessmentRecordSummaryResponse(
     val concludedAt: Instant?,
     val archivedAt: Instant?,
     val conclusions: List<ReviewConclusion>,
+    val abandonmentSource: AbandonmentSource?,
 )
 
 data class TaskSummaryResponse(
@@ -91,6 +94,7 @@ data class TaskDetailResponse(
     val finalConclusion: ReviewConclusion?,
     val finalConclusionAt: Instant?,
     val finalConclusionReason: String?,
+    val abandonmentSource: AbandonmentSource?,
     val answers: List<TaskAnswerResponse>,
     val files: List<TaskFileResponse>,
     val assignments: List<TaskAssignmentResponse>,
@@ -161,6 +165,9 @@ data class TaskOperationLogResponse(
 data class ExtendTaskRequest(
     @field:Future(message = "截止时间必须晚于当前时间")
     val deadline: Instant,
+    @field:Size(min = 2, max = 500, message = "延期原因须为2至500个字")
+    @field:NotBlank(message = "延期原因不能为空")
+    val reason: String,
 )
 
 data class AssignReviewersRequest(

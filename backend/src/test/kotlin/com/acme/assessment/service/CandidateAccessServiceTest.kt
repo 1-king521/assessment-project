@@ -47,6 +47,13 @@ class CandidateAccessServiceTest {
     }
 
     @Test
+    fun `legacy draft link token grants access`() {
+        task.status = TaskStatus.DRAFT
+
+        assertThat(service.requireAccess(rawLinkToken)).isSameAs(task)
+    }
+
+    @Test
     fun `deadline instant is no longer submit eligible`() {
         task.deadline = now
         whenever(taskRepository.findByTokenHashForUpdate("link-hash")).thenReturn(task)

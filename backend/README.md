@@ -7,7 +7,7 @@
 - JWT 登录认证和角色权限
 - 初始化管理员
 - 创建测评任务、创建评估分配、生成安全链接
-- 标记测评链接已发送
+- 创建任务时立即生成并启用测评链接
 - 操作日志和乐观锁
 
 ## 本地启动
@@ -64,7 +64,7 @@ Content-Type: application/json
 }
 ```
 
-创建成功后任务为 `DRAFT`；调用 `POST /api/assessment-tasks/{id}/send` 后变为 `SENT`。
+创建成功后任务即为 `SENT`，返回的测评链接无需额外发送操作即可访问。
 原始候选人 Token 只在创建响应的链接中返回一次，数据库仅保存 SHA-256 哈希。
 
 ## 候选人公开测评接口
@@ -80,7 +80,7 @@ Content-Type: application/json
 - `POST /api/public/assessments/{token}/files/{fileId}/complete`：确认文件校验值
 - `DELETE /api/public/assessments/{token}/files/{fileId}`：删除未提交附件
 
-候选人接口仅校验测评链接 Token，无需额外身份验证或 Cookie。任何获得有效链接的浏览器都可以读取草稿、保存答案、操作附件并提交；任务过期、撤回、归档、提交或重新生成链接后，原链接不可继续使用。
+候选人接口仅校验测评链接 Token，无需额外身份验证或 Cookie。任何获得有效链接的浏览器都可以读取草稿、保存答案、操作附件并提交；任务过期、撤回、归档、提交或重新生成链接后，原链接不可继续使用。历史 `DRAFT` 任务的有效链接也可直接访问。
 
 评估人员在候选人提交后由 HR 分配。分配前可调整人员；评估人员明确开始评估后，分配被锁定。
 

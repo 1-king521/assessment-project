@@ -52,9 +52,10 @@ class PublicAssessmentService(
         val task = loadAccessibleTask(rawToken)
         val now = clock.instant()
         if (task.openedAt == null) {
+            val previousStatus = task.status
             task.openedAt = now
             task.status = TaskStatus.OPENED
-            log(task, "LINK_ACCESSED", TaskStatus.SENT.name, TaskStatus.OPENED.name, now)
+            log(task, "LINK_ACCESSED", previousStatus.name, TaskStatus.OPENED.name, now)
         } else {
             task.lastAccessAt = now
         }
@@ -146,7 +147,6 @@ class PublicAssessmentService(
             }
             throw BusinessException("TASK_EXPIRED", "测评链接已过期")
         }
-        if (task.status == TaskStatus.DRAFT) throw BusinessException("TASK_NOT_SENT", "测评链接尚未发送")
         return task
     }
 

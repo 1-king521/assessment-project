@@ -92,6 +92,20 @@ class TaskExpirationProcessorTest {
     }
 
     @Test
+    fun `archives an unsubmitted legacy draft task when its deadline is reached`() {
+        val task = AssessmentTask(
+            id = 10,
+            deadline = now,
+            status = TaskStatus.DRAFT,
+        )
+        whenever(taskRepository.findByIdForUpdate(10)).thenReturn(task)
+        whenever(assignmentRepository.findAllByTaskId(10)).thenReturn(emptyList())
+
+        assertThat(processor.archiveIfOverdue(10, now)).isTrue()
+        assertThat(task.status).isEqualTo(TaskStatus.ARCHIVED)
+    }
+
+    @Test
     fun `repeated processing is idempotent`() {
         val task = AssessmentTask(
             id = 10,

@@ -84,7 +84,8 @@ class AssessmentTaskService(
                 templateVersionId = requireNotNull(version.id),
                 tokenHash = tokenService.hash(rawToken),
                 deadline = request.deadline,
-                status = TaskStatus.DRAFT,
+                status = TaskStatus.SENT,
+                sentAt = now,
                 createdBy = actor.id,
                 createdAt = now,
                 updatedAt = now,
@@ -97,7 +98,7 @@ class AssessmentTaskService(
                 taskId = taskId,
                 operatorId = actor.id,
                 action = "TASK_CREATED",
-                toStatus = TaskStatus.DRAFT.name,
+                toStatus = TaskStatus.SENT.name,
                 detailJson = objectMapper.writeValueAsString(
                     mapOf("templateVersionId" to version.id),
                 ),

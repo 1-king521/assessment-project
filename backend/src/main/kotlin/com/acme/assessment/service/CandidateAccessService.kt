@@ -42,7 +42,6 @@ class CandidateAccessService(
         if (!task.deadline.isAfter(now) && task.status !in setOf(TaskStatus.SUBMITTED, TaskStatus.REVIEWING, TaskStatus.REVIEWED)) {
             throw BusinessException("TASK_EXPIRED", "测评链接已过期")
         }
-        if (task.status == TaskStatus.DRAFT) throw ConflictException("TASK_NOT_SENT", "测评链接尚未发送")
         if (task.status in setOf(TaskStatus.SUBMITTED, TaskStatus.REVIEWING, TaskStatus.REVIEWED)) {
             throw ConflictException("TASK_ALREADY_SUBMITTED", "测评已经提交")
         }

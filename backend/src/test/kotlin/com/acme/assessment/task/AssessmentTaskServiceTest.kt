@@ -84,7 +84,7 @@ class AssessmentTaskServiceTest {
     }
 
     @Test
-    fun `creates draft task without reviewer assignments`() {
+    fun `creates immediately sendable task without reviewer assignments`() {
         whenever(authenticationService.currentUser()).thenReturn(CurrentUser(10, "hr", "招聘专员", "HR", 1))
         whenever(positionRepository.findById(100)).thenReturn(
             Optional.of(RecruitmentPosition(id = 100, departmentName = "技术部", positionName = "开发", status = RecordStatus.ACTIVE)),
@@ -115,11 +115,14 @@ class AssessmentTaskServiceTest {
         )
 
         assertThat(response.id).isEqualTo(500)
+        assertThat(response.status).isEqualTo(TaskStatus.SENT)
         assertThat(response.assessmentUrl).isEqualTo("https://example.test/assessment/raw-token")
         val task = argumentCaptor<AssessmentTask>()
         verify(taskRepository).save(task.capture())
         assertThat(task.firstValue.candidateName).isEqualTo("张三")
         assertThat(task.firstValue.tokenHash).isEqualTo("hashed-token")
+        assertThat(task.firstValue.status).isEqualTo(TaskStatus.SENT)
+        assertThat(task.firstValue.sentAt).isEqualTo(now)
         verify(operationLogRepository).save(any())
     }
 

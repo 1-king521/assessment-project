@@ -15,8 +15,11 @@ import org.springframework.scheduling.annotation.EnableScheduling
 @ConfigurationPropertiesScan
 @EnableMethodSecurity
 @EnableScheduling
-class AssessmentApplication
-
-fun main(args: Array<String>) {
-    runApplication<AssessmentApplication>(*args)
+class AssessmentApplication {
+    companion object {
+        @JvmStatic
+        fun main(args: Array<String>) {
+            runApplication<AssessmentApplication>(*args)
+        }
+    }
 }

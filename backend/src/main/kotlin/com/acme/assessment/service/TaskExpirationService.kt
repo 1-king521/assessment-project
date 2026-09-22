@@ -40,6 +40,7 @@ class TaskExpirationScheduler(
 
     private companion object {
         val EXPIRABLE_STATUSES = setOf(
+            TaskStatus.DRAFT,
             TaskStatus.SENT,
             TaskStatus.OPENED,
             TaskStatus.IN_PROGRESS,
@@ -105,6 +106,7 @@ class TaskExpirationProcessor(
     private companion object {
         const val ABANDONED_REASON = "截止时间内未提交测评"
         val EXPIRABLE_STATUSES = setOf(
+            TaskStatus.DRAFT,
             TaskStatus.SENT,
             TaskStatus.OPENED,
             TaskStatus.IN_PROGRESS,
